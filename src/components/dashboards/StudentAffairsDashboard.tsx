@@ -4,9 +4,11 @@ import { useFeedback } from '../../contexts/FeedbackContext'
 import { Layout } from '../Layout'
 import { FeedbackCard } from '../feedback/FeedbackCard'
 import { FeedbackDetailModal } from '../feedback/FeedbackDetailModal'
+import { AssignmentModal } from '../feedback/AssignmentModal'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs'
-import { MessageSquare, Clock, CheckCircle2, AlertCircle, Users } from 'lucide-react'
+import { Button } from '../ui/button'
+import { MessageSquare, Clock, CheckCircle2, AlertCircle, Users, UserPlus } from 'lucide-react'
 import type { Feedback } from '../../contexts/FeedbackContext'
 
 interface StudentAffairsDashboardProps {
@@ -17,6 +19,7 @@ export function StudentAffairsDashboard({ onNavigate }: StudentAffairsDashboardP
   const { user } = useAuth()
   const { getAllFeedbacks } = useFeedback()
   const [selectedFeedback, setSelectedFeedback] = useState<Feedback | null>(null)
+  const [assigningFeedback, setAssigningFeedback] = useState<Feedback | null>(null)
 
   // Filter non-academic feedbacks only
   const nonAcademicFeedbacks = getAllFeedbacks().filter(f => f.type === 'non_academic')
@@ -35,6 +38,11 @@ export function StudentAffairsDashboard({ onNavigate }: StudentAffairsDashboardP
   const topCategories = Object.entries(categoryStats)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
+
+  const handleAssignClick = (e: React.MouseEvent, feedback: Feedback) => {
+    e.stopPropagation()
+    setAssigningFeedback(feedback)
+  }
 
   return (
     <Layout title={`Student Affairs Dashboard - ${user?.name}`}>
@@ -148,6 +156,7 @@ export function StudentAffairsDashboard({ onNavigate }: StudentAffairsDashboardP
                       feedback={feedback}
                       onClick={() => setSelectedFeedback(feedback)}
                       showStudent={true}
+                      onAssignClick={handleAssignClick}
                     />
                   ))}
                 </TabsContent>
@@ -161,6 +170,7 @@ export function StudentAffairsDashboard({ onNavigate }: StudentAffairsDashboardP
                         feedback={feedback}
                         onClick={() => setSelectedFeedback(feedback)}
                         showStudent={true}
+                        onAssignClick={handleAssignClick}
                       />
                     ))}
                 </TabsContent>
@@ -174,6 +184,7 @@ export function StudentAffairsDashboard({ onNavigate }: StudentAffairsDashboardP
                         feedback={feedback}
                         onClick={() => setSelectedFeedback(feedback)}
                         showStudent={true}
+                        onAssignClick={handleAssignClick}
                       />
                     ))}
                 </TabsContent>
@@ -187,6 +198,7 @@ export function StudentAffairsDashboard({ onNavigate }: StudentAffairsDashboardP
                         feedback={feedback}
                         onClick={() => setSelectedFeedback(feedback)}
                         showStudent={true}
+                        onAssignClick={handleAssignClick}
                       />
                     ))}
                 </TabsContent>
@@ -200,6 +212,7 @@ export function StudentAffairsDashboard({ onNavigate }: StudentAffairsDashboardP
                         feedback={feedback}
                         onClick={() => setSelectedFeedback(feedback)}
                         showStudent={true}
+                        onAssignClick={handleAssignClick}
                       />
                     ))}
                 </TabsContent>
@@ -213,6 +226,12 @@ export function StudentAffairsDashboard({ onNavigate }: StudentAffairsDashboardP
         feedback={selectedFeedback}
         open={!!selectedFeedback}
         onClose={() => setSelectedFeedback(null)}
+      />
+
+      <AssignmentModal
+        feedback={assigningFeedback}
+        open={!!assigningFeedback}
+        onClose={() => setAssigningFeedback(null)}
       />
     </Layout>
   )

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useFeedback, FeedbackType, FeedbackPriority } from '../../contexts/FeedbackContext'
+import { useFeedback, FeedbackType, FeedbackPriority, Feedback } from '../../contexts/FeedbackContext'
 import { useAuth } from '../../contexts/AuthContext'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
@@ -12,6 +12,8 @@ import { Switch } from '../ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs'
 import { ArrowLeft, AlertTriangle, CheckCircle2, Loader2, Upload, X, Lock } from 'lucide-react'
 import { toast } from 'sonner'
+import { SimilarityDetector } from './SimilarityDetector'
+import { FeedbackDetailModal } from './FeedbackDetailModal'
 
 interface FeedbackFormProps {
   onNavigate: (page: string) => void
@@ -57,6 +59,7 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
   const [detectedPriority, setDetectedPriority] = useState<FeedbackPriority>('medium')
   const [priorityLocked, setPriorityLocked] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [viewingSimilar, setViewingSimilar] = useState<Feedback | null>(null)
 
   const departments = [
     'Computer Science',
@@ -290,6 +293,17 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
                 </p>
               </div>
 
+              {/* Similarity Detection - Shows after user types enough */}
+              {(description.length > 20 || subject.length > 10) && category && (
+                <SimilarityDetector
+                  description={description}
+                  subject={subject}
+                  category={category}
+                  type={type}
+                  onViewSimilar={(feedback) => setViewingSimilar(feedback)}
+                />
+              )}
+
               {/* Priority Indicator (Emergency Detection) */}
               {priorityLocked && (
                 <Alert className="bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800">
@@ -412,6 +426,13 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Modal to view similar feedback */}
+      <FeedbackDetailModal
+        feedback={viewingSimilar}
+        open={!!viewingSimilar}
+        onClose={() => setViewingSimilar(null)}
+      />
     </div>
   )
 }

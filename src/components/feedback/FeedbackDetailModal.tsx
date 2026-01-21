@@ -73,7 +73,7 @@ export function FeedbackDetailModal({ feedback, open, onClose }: FeedbackDetailM
         toast.error('Please provide a resolution summary before marking as resolved.')
         return
       }
-      updateFeedbackStatus(feedback.id, newStatus)
+      updateFeedbackStatus(feedback.id, newStatus, resolutionSummary)
       toast.success(`Status updated to ${newStatus.replace('_', ' ')}`)
       setNewStatus('')
       setResolutionSummary('')

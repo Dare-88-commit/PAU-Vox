@@ -40,7 +40,8 @@ export interface Feedback {
 interface FeedbackContextType {
   feedbacks: Feedback[]
   submitFeedback: (feedback: Omit<Feedback, 'id' | 'status' | 'priority' | 'createdAt' | 'updatedAt'>) => Promise<void>
-  updateFeedbackStatus: (id: string, status: FeedbackStatus) => void
+  updateFeedbackStatus: (id: string, status: FeedbackStatus, resolutionSummary?: string) => void
+  assignFeedback: (id: string, assignedTo: string, assignedBy: string) => void
   addInternalNote: (feedbackId: string, note: string, author: string) => void
   checkProfanity: (text: string) => boolean
   getUserFeedbacks: (userId: string) => Feedback[]
@@ -166,11 +167,21 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
     setFeedbacks(prev => [...prev, newFeedback])
   }
 
-  const updateFeedbackStatus = (id: string, status: FeedbackStatus) => {
+  const updateFeedbackStatus = (id: string, status: FeedbackStatus, resolutionSummary?: string) => {
     setFeedbacks(prev =>
       prev.map(f =>
         f.id === id
-          ? { ...f, status, updatedAt: new Date() }
+          ? { ...f, status, resolutionSummary, updatedAt: new Date() }
+          : f
+      )
+    )
+  }
+
+  const assignFeedback = (id: string, assignedTo: string, assignedBy: string) => {
+    setFeedbacks(prev =>
+      prev.map(f =>
+        f.id === id
+          ? { ...f, assignedTo, updatedAt: new Date() }
           : f
       )
     )
@@ -220,6 +231,7 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
         feedbacks,
         submitFeedback,
         updateFeedbackStatus,
+        assignFeedback,
         addInternalNote,
         checkProfanity,
         getUserFeedbacks,

@@ -1,7 +1,8 @@
 import { Feedback, FeedbackStatus } from '../../contexts/FeedbackContext'
 import { Card, CardContent, CardHeader } from '../ui/card'
 import { Badge } from '../ui/badge'
-import { Clock, User, AlertCircle } from 'lucide-react'
+import { Button } from '../ui/button'
+import { Clock, User, AlertCircle, UserPlus } from 'lucide-react'
 
 function formatDistanceToNow(date: Date, options?: { addSuffix?: boolean }): string {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000)
@@ -23,9 +24,10 @@ interface FeedbackCardProps {
   feedback: Feedback
   onClick?: () => void
   showStudent?: boolean
+  onAssignClick?: (e: React.MouseEvent, feedback: Feedback) => void
 }
 
-export function FeedbackCard({ feedback, onClick, showStudent = false }: FeedbackCardProps) {
+export function FeedbackCard({ feedback, onClick, showStudent = false, onAssignClick }: FeedbackCardProps) {
   const getStatusColor = (status: FeedbackStatus) => {
     switch (status) {
       case 'pending':
@@ -82,6 +84,19 @@ export function FeedbackCard({ feedback, onClick, showStudent = false }: Feedbac
             <h3 className="font-semibold text-lg truncate">{feedback.subject}</h3>
             <p className="text-sm text-muted-foreground">{feedback.category}</p>
           </div>
+
+          {/* Assignment Button - only show for unassigned feedback */}
+          {onAssignClick && !feedback.assignedTo && feedback.status === 'pending' && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => onAssignClick(e, feedback)}
+              className="shrink-0"
+            >
+              <UserPlus className="w-4 h-4 mr-1" />
+              Assign
+            </Button>
+          )}
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -113,6 +128,16 @@ export function FeedbackCard({ feedback, onClick, showStudent = false }: Feedbac
           <div className="pt-2 border-t">
             <span className="text-sm text-muted-foreground">
               Department: <span className="font-medium text-foreground">{feedback.department}</span>
+            </span>
+          </div>
+        )}
+
+        {/* Show assigned staff if exists */}
+        {feedback.assignedTo && (
+          <div className="pt-2 border-t">
+            <span className="text-sm text-muted-foreground flex items-center gap-1">
+              <User className="w-3 h-3" />
+              Assigned to: <span className="font-medium text-foreground">{feedback.assignedTo}</span>
             </span>
           </div>
         )}

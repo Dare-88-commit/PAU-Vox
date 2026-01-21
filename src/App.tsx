@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { FeedbackProvider } from './contexts/FeedbackContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { SearchProvider } from './contexts/SearchContext'
+import { NotificationProvider } from './contexts/NotificationContext'
 import { Navbar } from './components/Navbar'
 import { MobileBottomNav } from './components/MobileBottomNav'
 import { LandingPage } from './components/LandingPage'
@@ -58,6 +59,29 @@ function AppContent() {
       setCurrentPage('verify-email')
     }
   }, [isAuthenticated, user, currentPage])
+
+  // Enhanced route protection - check on URL access attempts
+  useEffect(() => {
+    const protectRoutes = () => {
+      if (user?.role === 'student') {
+        const staffOnlyPages: Page[] = ['staff-inbox', 'analytics']
+        if (staffOnlyPages.includes(currentPage)) {
+          toast.error('Access denied. Redirecting to your dashboard.')
+          setCurrentPage('dashboard')
+        }
+      }
+
+      // Protect admin routes
+      const managementOnlyPages: Page[] = ['analytics']
+      const isManagement = user && ['university_management', 'ict_admin', 'department_head'].includes(user.role)
+      if (managementOnlyPages.includes(currentPage) && !isManagement && user?.role !== 'student_affairs' && user?.role !== 'facilities_management' && user?.role !== 'academic_staff') {
+        toast.error('Access denied. Insufficient permissions.')
+        setCurrentPage('dashboard')
+      }
+    }
+
+    protectRoutes()
+  }, [currentPage, user])
 
   const handleNavigate = (page: Page) => {
     // Role-based route guarding
@@ -168,10 +192,12 @@ export default function App() {
       <AuthProvider>
         <FeedbackProvider>
           <SearchProvider>
-            <div className="min-h-screen">
-              <AppContent />
-              <Toaster />
-            </div>
+            <NotificationProvider>
+              <div className="min-h-screen">
+                <AppContent />
+                <Toaster />
+              </div>
+            </NotificationProvider>
           </SearchProvider>
         </FeedbackProvider>
       </AuthProvider>
