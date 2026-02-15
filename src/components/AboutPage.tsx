@@ -204,7 +204,8 @@ export function AboutPage({ onNavigate }: AboutPageProps) {
               <Button
                 onClick={() => onNavigate('signup')}
                 size="lg"
-                className="bg-white text-[#001F54] hover:bg-blue-50"
+                variant="outline"
+                className="border-white text-[#001F54] hover:bg-white/10"
               >
                 Create Account
               </Button>
@@ -212,7 +213,7 @@ export function AboutPage({ onNavigate }: AboutPageProps) {
                 onClick={() => onNavigate('feedback')}
                 size="lg"
                 variant="outline"
-                className="border-white text-white hover:bg-white/10"
+                className="border-white text-[#001F54] hover:bg-white/10"
               >
                 Submit Feedback
               </Button>

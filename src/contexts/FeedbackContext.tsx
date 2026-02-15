@@ -1,229 +1,227 @@
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { useAuth } from "./AuthContext";
+import { apiRequest } from "../lib/api";
 
-export type FeedbackType = 'academic' | 'non_academic'
-export type FeedbackStatus = 'pending' | 'in_review' | 'assigned' | 'working' | 'resolved' | 'rejected'
-export type FeedbackPriority = 'low' | 'medium' | 'high' | 'urgent'
+export type FeedbackType = "academic" | "non_academic";
+export type FeedbackStatus = "pending" | "in_review" | "assigned" | "working" | "resolved" | "rejected";
+export type FeedbackPriority = "low" | "medium" | "high" | "urgent";
 
 export interface Feedback {
-  id: string
-  type: FeedbackType
-  category: string
-  subject: string
-  description: string
-  status: FeedbackStatus
-  priority: FeedbackPriority
-  isAnonymous: boolean
-  studentId: string
-  studentName?: string
-  createdAt: Date
-  updatedAt: Date
-  assignedTo?: string
-  department?: string
-  resolutionSummary?: string
-  attachments?: string[]
+  id: string;
+  type: FeedbackType;
+  category: string;
+  subject: string;
+  description: string;
+  status: FeedbackStatus;
+  priority: FeedbackPriority;
+  isAnonymous: boolean;
+  studentId: string;
+  studentName?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  assignedTo?: string;
+  department?: string;
+  resolutionSummary?: string;
+  attachments?: string[];
   internalNotes?: Array<{
-    id: string
-    text: string
-    author: string
-    createdAt: Date
-  }>
+    id: string;
+    text: string;
+    author: string;
+    createdAt: Date;
+  }>;
   statusHistory?: Array<{
-    id: string
-    status: FeedbackStatus
-    timestamp: Date
-    updatedBy: string
-    note?: string
-  }>
-  similarityGroup?: string
+    id: string;
+    status: FeedbackStatus;
+    timestamp: Date;
+    updatedBy: string;
+    note?: string;
+  }>;
+  similarityGroup?: string;
 }
 
 interface FeedbackContextType {
-  feedbacks: Feedback[]
-  submitFeedback: (feedback: Omit<Feedback, 'id' | 'status' | 'priority' | 'createdAt' | 'updatedAt'>) => Promise<void>
-  updateFeedbackStatus: (id: string, status: FeedbackStatus, resolutionSummary?: string) => void
-  assignFeedback: (id: string, assignedTo: string, assignedBy: string) => void
-  addInternalNote: (feedbackId: string, note: string, author: string) => void
-  checkProfanity: (text: string) => boolean
-  getUserFeedbacks: (userId: string) => Feedback[]
-  getDepartmentFeedbacks: (department: string, type: FeedbackType) => Feedback[]
-  getAssignedFeedbacks: (assignedTo: string) => Feedback[]
-  getAllFeedbacks: () => Feedback[]
+  feedbacks: Feedback[];
+  submitFeedback: (
+    feedback: Omit<Feedback, "id" | "status" | "priority" | "createdAt" | "updatedAt">,
+  ) => Promise<void>;
+  updateFeedbackStatus: (id: string, status: FeedbackStatus, resolutionSummary?: string) => Promise<void>;
+  assignFeedback: (id: string, assignedTo: string, assignedBy: string) => Promise<void>;
+  addInternalNote: (feedbackId: string, note: string, author: string) => Promise<void>;
+  checkProfanity: (text: string) => boolean;
+  getUserFeedbacks: (userId: string) => Feedback[];
+  getDepartmentFeedbacks: (department: string, type: FeedbackType) => Feedback[];
+  getAssignedFeedbacks: (assignedTo: string) => Feedback[];
+  getAllFeedbacks: () => Feedback[];
+  refreshFeedbacks: () => Promise<void>;
 }
 
-const FeedbackContext = createContext<FeedbackContextType | undefined>(undefined)
+type BackendFeedback = {
+  id: string;
+  type: FeedbackType;
+  category: string;
+  subject: string;
+  description: string;
+  status: FeedbackStatus;
+  priority: FeedbackPriority;
+  is_anonymous: boolean;
+  student_id: string;
+  student_name?: string | null;
+  assigned_to_id?: string | null;
+  department?: string | null;
+  resolution_summary?: string | null;
+  similarity_group?: string | null;
+  created_at: string;
+  updated_at: string;
+  notes?: Array<{
+    id: string;
+    author_id: string;
+    text: string;
+    created_at: string;
+  }>;
+  status_history?: Array<{
+    id: string;
+    status: FeedbackStatus;
+    updated_by_id: string;
+    note?: string | null;
+    created_at: string;
+  }>;
+};
 
-// Profanity word list (basic implementation)
-const profanityList = ['damn', 'hell', 'stupid', 'idiot', 'fool', 'crap', 'suck']
+const FeedbackContext = createContext<FeedbackContextType | undefined>(undefined);
+
+const profanityList = ["damn", "hell", "stupid", "idiot", "fool", "crap", "suck"];
+
+function mapFeedback(input: BackendFeedback): Feedback {
+  return {
+    id: input.id,
+    type: input.type,
+    category: input.category,
+    subject: input.subject,
+    description: input.description,
+    status: input.status,
+    priority: input.priority,
+    isAnonymous: input.is_anonymous,
+    studentId: input.student_id,
+    studentName: input.student_name || undefined,
+    createdAt: new Date(input.created_at),
+    updatedAt: new Date(input.updated_at),
+    assignedTo: input.assigned_to_id || undefined,
+    department: input.department || undefined,
+    resolutionSummary: input.resolution_summary || undefined,
+    similarityGroup: input.similarity_group || undefined,
+    internalNotes: (input.notes || []).map((note) => ({
+      id: note.id,
+      text: note.text,
+      author: note.author_id,
+      createdAt: new Date(note.created_at),
+    })),
+    statusHistory: (input.status_history || []).map((item) => ({
+      id: item.id,
+      status: item.status,
+      timestamp: new Date(item.created_at),
+      updatedBy: item.updated_by_id,
+      note: item.note || undefined,
+    })),
+  };
+}
 
 export function FeedbackProvider({ children }: { children: React.ReactNode }) {
-  const [feedbacks, setFeedbacks] = useState<Feedback[]>([])
+  const { token, user } = useAuth();
+  const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
+
+  const refreshFeedbacks = async () => {
+    if (!token) {
+      setFeedbacks([]);
+      return;
+    }
+
+    try {
+      const response = await apiRequest<{ items: BackendFeedback[]; total: number }>("/feedback", {
+        token,
+      });
+      setFeedbacks(response.items.map(mapFeedback));
+    } catch {
+      setFeedbacks([]);
+    }
+  };
 
   useEffect(() => {
-    // Load feedbacks from localStorage
-    const stored = localStorage.getItem('pau_vox_feedbacks')
-    if (stored) {
-      const parsed = JSON.parse(stored)
-      // Convert date strings back to Date objects
-      const withDates = parsed.map((f: any) => ({
-        ...f,
-        createdAt: new Date(f.createdAt),
-        updatedAt: new Date(f.updatedAt),
-        internalNotes: f.internalNotes?.map((n: any) => ({
-          ...n,
-          createdAt: new Date(n.createdAt)
-        })),
-        statusHistory: f.statusHistory?.map((s: any) => ({
-          ...s,
-          timestamp: new Date(s.timestamp)
-        }))
-      }))
-      setFeedbacks(withDates)
-    } else {
-      // Initialize with mock data
-      const mockFeedbacks: Feedback[] = [
-        {
-          id: '1',
-          type: 'academic',
-          category: 'Course Content',
-          subject: 'Calculus course too difficult',
-          description: 'The pace of the calculus course is too fast. Many students are struggling to keep up with the material.',
-          status: 'in_review',
-          priority: 'medium',
-          isAnonymous: false,
-          studentId: '1',
-          studentName: 'John Doe',
-          createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-          updatedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-          department: 'Mathematics',
-          internalNotes: []
-        },
-        {
-          id: '2',
-          type: 'non_academic',
-          category: 'Hostel',
-          subject: 'No AC in Block B',
-          description: 'The air conditioning has not been working in Block B for 3 days. It is very hot and uncomfortable.',
-          status: 'assigned',
-          priority: 'high',
-          isAnonymous: true,
-          studentId: '2',
-          createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-          updatedAt: new Date(),
-          assignedTo: 'facilities_management',
-          internalNotes: []
-        }
-      ]
-      setFeedbacks(mockFeedbacks)
-      localStorage.setItem('pau_vox_feedbacks', JSON.stringify(mockFeedbacks))
-    }
-  }, [])
-
-  useEffect(() => {
-    // Save to localStorage whenever feedbacks change
-    if (feedbacks.length > 0) {
-      localStorage.setItem('pau_vox_feedbacks', JSON.stringify(feedbacks))
-    }
-  }, [feedbacks])
+    void refreshFeedbacks();
+  }, [token, user?.role]);
 
   const checkProfanity = (text: string): boolean => {
-    const lowerText = text.toLowerCase()
-    return profanityList.some(word => lowerText.includes(word))
-  }
+    const lowerText = text.toLowerCase();
+    return profanityList.some((word) => lowerText.includes(word));
+  };
 
-  const detectPriority = (description: string): FeedbackPriority => {
-    const urgentKeywords = ['urgent', 'emergency', 'danger', 'fire', 'flood', 'immediate']
-    const highKeywords = ['broken', 'not working', 'severe', 'serious', 'critical']
-    
-    const lowerDesc = description.toLowerCase()
-    
-    if (urgentKeywords.some(keyword => lowerDesc.includes(keyword))) {
-      return 'urgent'
+  const submitFeedback = async (
+    feedback: Omit<Feedback, "id" | "status" | "priority" | "createdAt" | "updatedAt">,
+  ) => {
+    if (!token) {
+      throw new Error("Please log in to submit feedback.");
     }
-    if (highKeywords.some(keyword => lowerDesc.includes(keyword))) {
-      return 'high'
+    const created = await apiRequest<BackendFeedback>("/feedback", {
+      method: "POST",
+      token,
+      body: {
+        type: feedback.type,
+        category: feedback.category,
+        subject: feedback.subject,
+        description: feedback.description,
+        is_anonymous: feedback.isAnonymous,
+        department: feedback.type === "academic" ? feedback.department : undefined,
+      },
+    });
+    setFeedbacks((prev) => [mapFeedback(created), ...prev]);
+  };
+
+  const updateFeedbackStatus = async (id: string, status: FeedbackStatus, resolutionSummary?: string) => {
+    if (!token) {
+      throw new Error("Please log in first.");
     }
-    return 'medium'
-  }
+    const updated = await apiRequest<BackendFeedback>(`/feedback/${id}/status`, {
+      method: "PATCH",
+      token,
+      body: { status, resolution_summary: resolutionSummary },
+    });
+    setFeedbacks((prev) => prev.map((item) => (item.id === id ? mapFeedback(updated) : item)));
+  };
 
-  const submitFeedback = async (feedback: Omit<Feedback, 'id' | 'status' | 'priority' | 'createdAt' | 'updatedAt'>) => {
-    // Check profanity
-    if (checkProfanity(feedback.description) || checkProfanity(feedback.subject)) {
-      throw new Error('Your feedback contains inappropriate language. Please revise and resubmit.')
+  const assignFeedback = async (id: string, assignedTo: string, assignedBy: string) => {
+    if (!token) {
+      throw new Error("Please log in first.");
     }
+    const updated = await apiRequest<BackendFeedback>(`/feedback/${id}/assign`, {
+      method: "POST",
+      token,
+      body: { assignee_id: assignedTo, note: `Assigned by ${assignedBy}` },
+    });
+    setFeedbacks((prev) => prev.map((item) => (item.id === id ? mapFeedback(updated) : item)));
+  };
 
-    // Detect priority
-    const priority = detectPriority(feedback.description)
-
-    const newFeedback: Feedback = {
-      ...feedback,
-      id: Date.now().toString(),
-      status: 'pending',
-      priority,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      internalNotes: []
+  const addInternalNote = async (feedbackId: string, note: string, _author: string) => {
+    if (!token) {
+      throw new Error("Please log in first.");
     }
+    const updated = await apiRequest<BackendFeedback>(`/feedback/${feedbackId}/notes`, {
+      method: "POST",
+      token,
+      body: { text: note },
+    });
+    setFeedbacks((prev) => prev.map((item) => (item.id === feedbackId ? mapFeedback(updated) : item)));
+  };
 
-    setFeedbacks(prev => [...prev, newFeedback])
-  }
+  const filteredFeedbacks = useMemo(() => feedbacks, [feedbacks]);
 
-  const updateFeedbackStatus = (id: string, status: FeedbackStatus, resolutionSummary?: string) => {
-    setFeedbacks(prev =>
-      prev.map(f =>
-        f.id === id
-          ? { ...f, status, resolutionSummary, updatedAt: new Date() }
-          : f
-      )
-    )
-  }
+  const getUserFeedbacks = (userId: string) => filteredFeedbacks.filter((feedback) => feedback.studentId === userId);
 
-  const assignFeedback = (id: string, assignedTo: string, assignedBy: string) => {
-    setFeedbacks(prev =>
-      prev.map(f =>
-        f.id === id
-          ? { ...f, assignedTo, updatedAt: new Date() }
-          : f
-      )
-    )
-  }
+  const getDepartmentFeedbacks = (department: string, type: FeedbackType) =>
+    filteredFeedbacks.filter((feedback) => feedback.department === department && feedback.type === type);
 
-  const addInternalNote = (feedbackId: string, note: string, author: string) => {
-    setFeedbacks(prev =>
-      prev.map(f =>
-        f.id === feedbackId
-          ? {
-              ...f,
-              internalNotes: [
-                ...(f.internalNotes || []),
-                {
-                  id: Date.now().toString(),
-                  text: note,
-                  author,
-                  createdAt: new Date()
-                }
-              ],
-              updatedAt: new Date()
-            }
-          : f
-      )
-    )
-  }
+  const getAssignedFeedbacks = (assignedTo: string) =>
+    filteredFeedbacks.filter((feedback) => feedback.assignedTo === assignedTo);
 
-  const getUserFeedbacks = (userId: string) => {
-    return feedbacks.filter(f => f.studentId === userId)
-  }
-
-  const getDepartmentFeedbacks = (department: string, type: FeedbackType) => {
-    return feedbacks.filter(f => f.department === department && f.type === type)
-  }
-
-  const getAssignedFeedbacks = (assignedTo: string) => {
-    return feedbacks.filter(f => f.assignedTo === assignedTo)
-  }
-
-  const getAllFeedbacks = () => {
-    return feedbacks
-  }
+  const getAllFeedbacks = () => filteredFeedbacks;
 
   return (
     <FeedbackContext.Provider
@@ -237,18 +235,19 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
         getUserFeedbacks,
         getDepartmentFeedbacks,
         getAssignedFeedbacks,
-        getAllFeedbacks
+        getAllFeedbacks,
+        refreshFeedbacks,
       }}
     >
       {children}
     </FeedbackContext.Provider>
-  )
+  );
 }
 
 export function useFeedback() {
-  const context = useContext(FeedbackContext)
+  const context = useContext(FeedbackContext);
   if (context === undefined) {
-    throw new Error('useFeedback must be used within a FeedbackProvider')
+    throw new Error("useFeedback must be used within a FeedbackProvider");
   }
-  return context
+  return context;
 }

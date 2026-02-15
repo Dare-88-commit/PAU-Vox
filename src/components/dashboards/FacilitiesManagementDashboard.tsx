@@ -19,7 +19,7 @@ export function FacilitiesManagementDashboard({ onNavigate }: FacilitiesManageme
   const [selectedFeedback, setSelectedFeedback] = useState<Feedback | null>(null)
 
   // Get feedbacks assigned to facilities management
-  const assignedTasks = getAssignedFeedbacks('facilities_management')
+  const assignedTasks = getAssignedFeedbacks(user?.id || '')
 
   const assignedCount = assignedTasks.filter(f => f.status === 'assigned').length
   const workingCount = assignedTasks.filter(f => f.status === 'working').length

@@ -67,24 +67,32 @@ export function FeedbackDetailModal({ feedback, open, onClose }: FeedbackDetailM
   const isStudent = user?.role === 'student'
   const isResolvingStatus = newStatus === 'resolved'
 
-  const handleStatusUpdate = () => {
+  const handleStatusUpdate = async () => {
     if (newStatus) {
       if (newStatus === 'resolved' && !resolutionSummary.trim()) {
         toast.error('Please provide a resolution summary before marking as resolved.')
         return
       }
-      updateFeedbackStatus(feedback.id, newStatus, resolutionSummary)
-      toast.success(`Status updated to ${newStatus.replace('_', ' ')}`)
-      setNewStatus('')
-      setResolutionSummary('')
+      try {
+        await updateFeedbackStatus(feedback.id, newStatus, resolutionSummary)
+        toast.success(`Status updated to ${newStatus.replace('_', ' ')}`)
+        setNewStatus('')
+        setResolutionSummary('')
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to update status')
+      }
     }
   }
 
-  const handleAddNote = () => {
+  const handleAddNote = async () => {
     if (newNote.trim() && user) {
-      addInternalNote(feedback.id, newNote, user.name)
-      toast.success('Internal note added')
-      setNewNote('')
+      try {
+        await addInternalNote(feedback.id, newNote, user.name)
+        toast.success('Internal note added')
+        setNewNote('')
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to add internal note')
+      }
     }
   }
 

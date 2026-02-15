@@ -11,10 +11,11 @@ interface VerifyEmailPageProps {
 }
 
 export function VerifyEmailPage({ onNavigate }: VerifyEmailPageProps) {
-  const { verifyEmail, user, loading } = useAuth()
+  const { verifyEmail, resendVerificationCode, user, loading } = useAuth()
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
+  const [resending, setResending] = useState(false)
 
   const handleVerify = async () => {
     setError('')
@@ -32,6 +33,18 @@ export function VerifyEmailPage({ onNavigate }: VerifyEmailPageProps) {
       }, 2000)
     } catch (err: any) {
       setError(err.message || 'Invalid verification code')
+    }
+  }
+
+  const handleResend = async () => {
+    setError('')
+    setResending(true)
+    try {
+      await resendVerificationCode()
+    } catch (err: any) {
+      setError(err.message || 'Failed to resend code')
+    } finally {
+      setResending(false)
     }
   }
 
@@ -103,9 +116,10 @@ export function VerifyEmailPage({ onNavigate }: VerifyEmailPageProps) {
               <button
                 type="button"
                 className="text-[#001F54] hover:underline font-medium"
-                onClick={() => alert('Verification code resent!')}
+                onClick={handleResend}
+                disabled={resending}
               >
-                Resend
+                {resending ? 'Resending...' : 'Resend'}
               </button>
             </div>
           </CardContent>

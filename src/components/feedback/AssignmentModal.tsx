@@ -1,7 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Feedback, useFeedback } from '../../contexts/FeedbackContext'
 import { useAuth } from '../../contexts/AuthContext'
-import { useNotifications } from '../../contexts/NotificationContext'
 import {
   Dialog,
   DialogContent,
@@ -16,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Textarea } from '../ui/textarea'
 import { UserCheck, Users } from 'lucide-react'
 import { toast } from 'sonner'
+import { apiRequest } from '../../lib/api'
 
 interface AssignmentModalProps {
   feedback: Feedback | null
@@ -23,34 +23,42 @@ interface AssignmentModalProps {
   onClose: () => void
 }
 
-// Mock staff members - in real app this would come from a database
-const staffMembers = [
-  { id: 'staff_1', name: 'Dr. Johnson Okafor', role: 'academic_staff', department: 'Mathematics' },
-  { id: 'staff_2', name: 'Prof. Amina Bello', role: 'academic_staff', department: 'Computer Science' },
-  { id: 'staff_3', name: 'Mr. David Adeyemi', role: 'facilities_management', department: 'Facilities' },
-  { id: 'staff_4', name: 'Mrs. Grace Eze', role: 'facilities_management', department: 'Facilities' },
-  { id: 'staff_5', name: 'Dr. Emmanuel Nwosu', role: 'student_affairs', department: 'Student Affairs' },
-  { id: 'staff_6', name: 'Ms. Chioma Okoro', role: 'student_affairs', department: 'Student Affairs' },
-]
+interface StaffMember {
+  id: string
+  full_name: string
+  role: string
+  department?: string | null
+}
 
 export function AssignmentModal({ feedback, open, onClose }: AssignmentModalProps) {
-  const { user } = useAuth()
+  const { user, token } = useAuth()
   const { assignFeedback, updateFeedbackStatus, addInternalNote } = useFeedback()
-  const { addNotification } = useNotifications()
+  const [staffMembers, setStaffMembers] = useState<StaffMember[]>([])
   const [selectedStaff, setSelectedStaff] = useState('')
   const [assignmentNote, setAssignmentNote] = useState('')
   const [loading, setLoading] = useState(false)
+  const [staffLoading, setStaffLoading] = useState(false)
 
   if (!feedback) return null
 
-  // Filter staff based on feedback type
-  const relevantStaff = staffMembers.filter(staff => {
-    if (feedback.type === 'academic') {
-      return staff.role === 'academic_staff' || staff.role === 'department_head'
-    } else {
-      return staff.role === 'facilities_management' || staff.role === 'student_affairs'
+  useEffect(() => {
+    const loadStaff = async () => {
+      if (!open || !token) return
+      setStaffLoading(true)
+      try {
+        const rows = await apiRequest<StaffMember[]>('/auth/staff-directory', { token })
+        setStaffMembers(rows)
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to load staff directory')
+        setStaffMembers([])
+      } finally {
+        setStaffLoading(false)
+      }
     }
-  })
+    void loadStaff()
+  }, [open, token])
+
+  const relevantStaff = staffMembers
 
   const handleAssign = async () => {
     if (!selectedStaff) {
@@ -64,27 +72,19 @@ export function AssignmentModal({ feedback, open, onClose }: AssignmentModalProp
       const staffMember = staffMembers.find(s => s.id === selectedStaff)
       
       // Assign the feedback
-      assignFeedback(feedback.id, selectedStaff, user?.name || 'System')
+      await assignFeedback(feedback.id, selectedStaff, user?.name || 'System')
       
       // Update status to 'assigned'
-      updateFeedbackStatus(feedback.id, 'assigned')
+      await updateFeedbackStatus(feedback.id, 'assigned')
       
       // Add internal note about assignment
       const note = assignmentNote.trim() 
         ? `Assigned to ${staffMember?.name}. Note: ${assignmentNote}`
         : `Assigned to ${staffMember?.name}`
       
-      addInternalNote(feedback.id, note, user?.name || 'System')
+      await addInternalNote(feedback.id, note, user?.name || 'System')
 
-      // Create notification for the assigned staff member
-      addNotification({
-        title: 'New Feedback Assigned',
-        message: `You have been assigned to handle: "${feedback.subject}"`,
-        type: 'info',
-        feedbackId: feedback.id
-      })
-
-      toast.success(`Feedback assigned to ${staffMember?.name}`)
+      toast.success(`Feedback assigned to ${staffMember?.full_name}`)
       
       // Reset and close
       setSelectedStaff('')
@@ -129,15 +129,15 @@ export function AssignmentModal({ feedback, open, onClose }: AssignmentModalProp
             </Label>
             <Select value={selectedStaff} onValueChange={setSelectedStaff}>
               <SelectTrigger id="staff-select">
-                <SelectValue placeholder="Choose a staff member..." />
+                <SelectValue placeholder={staffLoading ? "Loading staff..." : "Choose a staff member..."} />
               </SelectTrigger>
               <SelectContent>
                 {relevantStaff.map((staff) => (
                   <SelectItem key={staff.id} value={staff.id}>
                     <div className="flex flex-col">
-                      <span className="font-medium">{staff.name}</span>
+                      <span className="font-medium">{staff.full_name}</span>
                       <span className="text-xs text-muted-foreground">
-                        {staff.department} - {staff.role.replace('_', ' ')}
+                        {(staff.department || 'N/A')} - {staff.role.replace('_', ' ')}
                       </span>
                     </div>
                   </SelectItem>

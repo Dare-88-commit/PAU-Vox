@@ -1,0 +1,1 @@
+"""PAU Vox backend package."""

@@ -1,9 +1,5 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-} from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { apiRequest } from "../lib/api";
 
 export type UserRole =
   | "student"
@@ -25,6 +21,7 @@ export interface User {
 
 interface AuthContextType {
   user: User | null;
+  token: string | null;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (
@@ -34,66 +31,96 @@ interface AuthContextType {
     role: UserRole,
   ) => Promise<void>;
   verifyEmail: (code: string) => Promise<void>;
+  resendVerificationCode: () => Promise<void>;
   logout: () => void;
   loading: boolean;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(
-  undefined,
-);
+type BackendUser = {
+  id: string;
+  email: string;
+  full_name: string;
+  role: UserRole;
+  department?: string | null;
+  is_verified: boolean;
+};
 
-export function AuthProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+type LoginResponse = {
+  access_token: string;
+  token_type: string;
+  user: BackendUser;
+};
+
+type PendingSignup = {
+  email: string;
+  password: string;
+  name: string;
+  role: UserRole;
+};
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const TOKEN_KEY = "pau_vox_token";
+const USER_KEY = "pau_vox_user";
+const PENDING_SIGNUP_KEY = "pau_vox_pending_signup";
+
+function mapBackendUser(user: BackendUser): User {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.full_name,
+    role: user.role,
+    department: user.department || undefined,
+    verified: user.is_verified,
+  };
+}
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check for stored user session
-    const storedUser = localStorage.getItem("pau_vox_user");
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    }
-    setLoading(false);
+    const initialize = async () => {
+      const storedUser = localStorage.getItem(USER_KEY);
+      const storedToken = localStorage.getItem(TOKEN_KEY);
+
+      if (storedUser) {
+        setUser(JSON.parse(storedUser));
+      }
+      if (storedToken) {
+        setToken(storedToken);
+        try {
+          const backendUser = await apiRequest<BackendUser>("/auth/me", {
+            token: storedToken,
+          });
+          const mapped = mapBackendUser(backendUser);
+          setUser(mapped);
+          localStorage.setItem(USER_KEY, JSON.stringify(mapped));
+        } catch {
+          localStorage.removeItem(TOKEN_KEY);
+          setToken(null);
+        }
+      }
+      setLoading(false);
+    };
+
+    void initialize();
   }, []);
 
   const login = async (email: string, password: string) => {
     setLoading(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Determine role based on email content for easy testing
-      let assignedRole: UserRole = "student";
-
-      const lowerEmail = email.toLowerCase();
-      if (lowerEmail.includes("affairs"))
-        assignedRole = "student_affairs";
-      else if (lowerEmail.includes("facilities"))
-        assignedRole = "facilities_management";
-      else if (lowerEmail.includes("academic"))
-        assignedRole = "academic_staff";
-      else if (lowerEmail.includes("head"))
-        assignedRole = "department_head";
-      else if (lowerEmail.includes("mgmt"))
-        assignedRole = "university_management";
-      else if (lowerEmail.includes("admin"))
-        assignedRole = "ict_admin";
-
-      const mockUser: User = {
-        id: "1",
-        email,
-        name: email.split("@")[0].replace(".", " "),
-        role: assignedRole,
-        verified: true,
-      };
-
-      setUser(mockUser);
-      localStorage.setItem(
-        "pau_vox_user",
-        JSON.stringify(mockUser),
-      );
+      const data = await apiRequest<LoginResponse>("/auth/login", {
+        method: "POST",
+        body: { email, password },
+      });
+      const mapped = mapBackendUser(data.user);
+      setUser(mapped);
+      setToken(data.access_token);
+      localStorage.setItem(USER_KEY, JSON.stringify(mapped));
+      localStorage.setItem(TOKEN_KEY, data.access_token);
+      localStorage.removeItem(PENDING_SIGNUP_KEY);
     } finally {
       setLoading(false);
     }
@@ -107,27 +134,28 @@ export function AuthProvider({
   ) => {
     setLoading(true);
     try {
-      // Validate PAU email
-      if (!email.endsWith("@pau.edu.ng")) {
-        throw new Error("Only @pau.edu.ng emails are allowed");
-      }
+      await apiRequest<{ message: string }>("/auth/signup", {
+        method: "POST",
+        body: {
+          email,
+          password,
+          full_name: name,
+          role,
+        },
+      });
 
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const pending: PendingSignup = { email, password, name, role };
+      localStorage.setItem(PENDING_SIGNUP_KEY, JSON.stringify(pending));
 
-      const mockUser: User = {
-        id: Date.now().toString(),
+      const placeholder: User = {
+        id: "pending",
         email,
         name,
         role,
         verified: false,
       };
-
-      setUser(mockUser);
-      localStorage.setItem(
-        "pau_vox_user",
-        JSON.stringify(mockUser),
-      );
+      setUser(placeholder);
+      localStorage.setItem(USER_KEY, JSON.stringify(placeholder));
     } finally {
       setLoading(false);
     }
@@ -136,37 +164,53 @@ export function AuthProvider({
   const verifyEmail = async (code: string) => {
     setLoading(true);
     try {
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      if (code.length === 6) {
-        const updatedUser = { ...user!, verified: true };
-        setUser(updatedUser);
-        localStorage.setItem(
-          "pau_vox_user",
-          JSON.stringify(updatedUser),
-        );
-      } else {
-        throw new Error("Invalid verification code");
+      const pendingRaw = localStorage.getItem(PENDING_SIGNUP_KEY);
+      if (!pendingRaw) {
+        throw new Error("No pending signup found. Please sign up again.");
       }
+      const pending = JSON.parse(pendingRaw) as PendingSignup;
+
+      await apiRequest<{ message: string }>("/auth/verify-email", {
+        method: "POST",
+        body: { email: pending.email, code },
+      });
+
+      await login(pending.email, pending.password);
     } finally {
       setLoading(false);
     }
   };
 
+  const resendVerificationCode = async () => {
+    const pendingRaw = localStorage.getItem(PENDING_SIGNUP_KEY);
+    if (!pendingRaw) {
+      throw new Error("No pending signup found.");
+    }
+    const pending = JSON.parse(pendingRaw) as PendingSignup;
+    await apiRequest<{ message: string }>("/auth/resend-code", {
+      method: "POST",
+      body: { email: pending.email },
+    });
+  };
+
   const logout = () => {
     setUser(null);
-    localStorage.removeItem("pau_vox_user");
+    setToken(null);
+    localStorage.removeItem(USER_KEY);
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(PENDING_SIGNUP_KEY);
   };
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        isAuthenticated: !!user,
+        token,
+        isAuthenticated: !!token && !!user,
         login,
         signup,
         verifyEmail,
+        resendVerificationCode,
         logout,
         loading,
       }}
@@ -179,9 +223,7 @@ export function AuthProvider({
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error(
-      "useAuth must be used within an AuthProvider",
-    );
+    throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
 }

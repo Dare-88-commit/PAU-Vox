@@ -16,7 +16,6 @@ import { AcademicStaffDashboard } from './components/dashboards/AcademicStaffDas
 import { StudentAffairsDashboard } from './components/dashboards/StudentAffairsDashboard'
 import { FacilitiesManagementDashboard } from './components/dashboards/FacilitiesManagementDashboard'
 import { UniversityManagementDashboard } from './components/dashboards/UniversityManagementDashboard'
-import { StaffInbox } from './components/StaffInbox'
 import { AnalyticsPage } from './components/dashboards/AnalyticsPage'
 import { AboutPage } from './components/AboutPage'
 import { SettingsPage } from './components/SettingsPage'
