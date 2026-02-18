@@ -8,26 +8,16 @@ import { Button } from './ui/button'
 import { Switch } from './ui/switch'
 import { Separator } from './ui/separator'
 import { Badge } from './ui/badge'
-import {
-  User,
-  Mail,
-  Shield,
-  Bell,
-  Download,
-  Trash2,
-  Save,
-  CheckCircle2,
-  Moon,
-  Sun
-} from 'lucide-react'
-import { toast } from 'sonner@2.0.3'
+import { User, Shield, Bell, Download, Trash2, Save, CheckCircle2, Moon, Lock } from 'lucide-react'
+import { toast } from 'sonner'
+import { apiRequest } from '../lib/api'
 
 interface SettingsPageProps {
   onNavigate: (page: string) => void
 }
 
 export function SettingsPage({ onNavigate }: SettingsPageProps) {
-  const { user } = useAuth()
+  const { user, token } = useAuth()
   const { darkMode, toggleDarkMode } = useTheme()
   const [emailNotifications, setEmailNotifications] = useState(true)
   const [pushNotifications, setPushNotifications] = useState(true)
@@ -35,24 +25,62 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
   const [weeklyDigest, setWeeklyDigest] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
 
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmNewPassword, setConfirmNewPassword] = useState('')
+  const [passwordLoading, setPasswordLoading] = useState(false)
+
   const handleSavePreferences = async () => {
     setSaveLoading(true)
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    await new Promise(resolve => setTimeout(resolve, 500))
     setSaveLoading(false)
     toast.success('Preferences saved successfully')
   }
 
+  const handleChangePassword = async () => {
+    if (!token) {
+      toast.error('You must be signed in')
+      return
+    }
+    if (newPassword.length < 8) {
+      toast.error('New password must be at least 8 characters')
+      return
+    }
+    if (newPassword !== confirmNewPassword) {
+      toast.error('New passwords do not match')
+      return
+    }
+
+    try {
+      setPasswordLoading(true)
+      await apiRequest<{ message: string }>('/auth/change-password', {
+        method: 'POST',
+        token,
+        body: {
+          current_password: currentPassword,
+          new_password: newPassword,
+        },
+      })
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmNewPassword('')
+      toast.success('Password changed successfully')
+    } catch (err: any) {
+      toast.error(err.message || 'Unable to change password')
+    } finally {
+      setPasswordLoading(false)
+    }
+  }
+
   const handleExportData = () => {
-    // Mock data export
     const userData = {
       user: {
         id: user?.id,
         name: user?.name,
         email: user?.email,
-        role: user?.role
+        role: user?.role,
       },
-      exportedAt: new Date().toISOString()
+      exportedAt: new Date().toISOString(),
     }
 
     const blob = new Blob([JSON.stringify(userData, null, 2)], { type: 'application/json' })
@@ -76,16 +104,12 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Settings</h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            Manage your account settings and preferences
-          </p>
+          <p className="text-gray-600 dark:text-gray-400">Manage your account settings and preferences</p>
         </div>
 
         <div className="space-y-6">
-          {/* Account Information */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center">
@@ -117,9 +141,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                 <div className="flex items-start">
                   <Shield className="w-5 h-5 text-blue-600 mt-0.5 mr-3" />
                   <div>
-                    <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                      Verified Account
-                    </p>
+                    <p className="text-sm font-medium text-blue-900 dark:text-blue-100">Verified Account</p>
                     <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
                       Your email has been verified. Your account is secure.
                     </p>
@@ -129,30 +151,68 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
             </CardContent>
           </Card>
 
-          {/* Notification Preferences */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Lock className="w-5 h-5 mr-2" />
+                Change Password
+              </CardTitle>
+              <CardDescription>Update your login password</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div>
+                  <Label htmlFor="current-password">Current Password</Label>
+                  <Input
+                    id="current-password"
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    className="mt-2"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="new-password">New Password</Label>
+                  <Input
+                    id="new-password"
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="mt-2"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="confirm-new-password">Confirm New Password</Label>
+                  <Input
+                    id="confirm-new-password"
+                    type="password"
+                    value={confirmNewPassword}
+                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    className="mt-2"
+                  />
+                </div>
+              </div>
+              <Button onClick={() => void handleChangePassword()} disabled={passwordLoading}>
+                {passwordLoading ? 'Updating...' : 'Update Password'}
+              </Button>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center">
                 <Bell className="w-5 h-5 mr-2" />
                 Notification Preferences
               </CardTitle>
-              <CardDescription>
-                Choose how you want to receive updates about your feedback
-              </CardDescription>
+              <CardDescription>Choose how you want to receive updates</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label htmlFor="email-notifications">Email Notifications</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Receive email updates about your feedback
-                  </p>
+                  <p className="text-sm text-muted-foreground">Receive email updates about your feedback</p>
                 </div>
-                <Switch
-                  id="email-notifications"
-                  checked={emailNotifications}
-                  onCheckedChange={setEmailNotifications}
-                />
+                <Switch id="email-notifications" checked={emailNotifications} onCheckedChange={setEmailNotifications} />
               </div>
 
               <Separator />
@@ -160,15 +220,9 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label htmlFor="push-notifications">Push Notifications</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Get instant notifications on status changes
-                  </p>
+                  <p className="text-sm text-muted-foreground">Get instant notifications on status changes</p>
                 </div>
-                <Switch
-                  id="push-notifications"
-                  checked={pushNotifications}
-                  onCheckedChange={setPushNotifications}
-                />
+                <Switch id="push-notifications" checked={pushNotifications} onCheckedChange={setPushNotifications} />
               </div>
 
               <Separator />
@@ -177,8 +231,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                 <div className="space-y-0.5">
                   <Label htmlFor="high-priority">High Priority Alerts</Label>
                   <p className="text-sm text-muted-foreground">
-                    Immediate alerts for urgent feedback{' '}
-                    {user?.role !== 'student' && '(Staff only)'}
+                    Immediate alerts for urgent feedback {user?.role !== 'student' && '(Staff only)'}
                   </p>
                 </div>
                 <Switch
@@ -194,23 +247,13 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label htmlFor="weekly-digest">Weekly Digest</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Receive a summary of campus feedback every week
-                  </p>
+                  <p className="text-sm text-muted-foreground">Receive a summary of campus feedback every week</p>
                 </div>
-                <Switch
-                  id="weekly-digest"
-                  checked={weeklyDigest}
-                  onCheckedChange={setWeeklyDigest}
-                />
+                <Switch id="weekly-digest" checked={weeklyDigest} onCheckedChange={setWeeklyDigest} />
               </div>
 
               <div className="pt-4">
-                <Button
-                  onClick={handleSavePreferences}
-                  disabled={saveLoading}
-                  className="bg-[#001F54] hover:bg-blue-900"
-                >
+                <Button onClick={handleSavePreferences} disabled={saveLoading} className="bg-[#001F54] hover:bg-blue-900">
                   {saveLoading ? (
                     <>
                       <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></div>
@@ -227,7 +270,6 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
             </CardContent>
           </Card>
 
-          {/* Privacy & Data */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center">
@@ -240,9 +282,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
               <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div>
                   <h4 className="font-medium">Export Your Data</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Download a copy of your account data and feedback history
-                  </p>
+                  <p className="text-sm text-muted-foreground">Download a copy of your account data and feedback history</p>
                 </div>
                 <Button variant="outline" onClick={handleExportData}>
                   <Download className="w-4 h-4 mr-2" />
@@ -252,12 +292,8 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
 
               <div className="flex items-center justify-between p-4 border border-red-200 dark:border-red-800 rounded-lg bg-red-50 dark:bg-red-900/20">
                 <div>
-                  <h4 className="font-medium text-red-900 dark:text-red-100">
-                    Delete Account
-                  </h4>
-                  <p className="text-sm text-red-700 dark:text-red-300">
-                    Permanently delete your account and all associated data
-                  </p>
+                  <h4 className="font-medium text-red-900 dark:text-red-100">Delete Account</h4>
+                  <p className="text-sm text-red-700 dark:text-red-300">Permanently delete your account and all associated data</p>
                 </div>
                 <Button variant="destructive" onClick={handleDeleteAccount}>
                   <Trash2 className="w-4 h-4 mr-2" />
@@ -271,16 +307,15 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                   Your Privacy Matters
                 </h4>
                 <ul className="text-sm text-muted-foreground space-y-1">
-                  <li>• We never share your data with third parties</li>
-                  <li>• Anonymous feedback is completely private</li>
-                  <li>• Staff cannot see your identity on anonymous submissions</li>
-                  <li>• All data is encrypted and securely stored</li>
+                  <li>- We never share your data with third parties</li>
+                  <li>- Anonymous feedback is private to policy limits</li>
+                  <li>- Staff cannot see your identity on anonymous submissions</li>
+                  <li>- All data is encrypted in transit and at rest where configured</li>
                 </ul>
               </div>
             </CardContent>
           </Card>
 
-          {/* Theme */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center">
@@ -289,19 +324,13 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
               </CardTitle>
               <CardDescription>Choose your preferred theme</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent>
               <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div>
                   <h4 className="font-medium">Dark Mode</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Switch between light and dark themes
-                  </p>
+                  <p className="text-sm text-muted-foreground">Switch between light and dark themes</p>
                 </div>
-                <Switch
-                  id="dark-mode"
-                  checked={darkMode}
-                  onCheckedChange={toggleDarkMode}
-                />
+                <Switch id="dark-mode" checked={darkMode} onCheckedChange={toggleDarkMode} />
               </div>
             </CardContent>
           </Card>

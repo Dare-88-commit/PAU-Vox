@@ -37,3 +37,8 @@ class NotificationType(str, enum.Enum):
     success = "success"
     warning = "warning"
     error = "error"
+
+
+class SurveyType(str, enum.Enum):
+    general = "general"
+    hostel = "hostel"

@@ -1,12 +1,17 @@
 from datetime import datetime, timezone
+from pathlib import Path
+import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.core.policies import can_add_internal_note, can_view_feedback
 from app.db.session import get_db
-from app.models.enums import FeedbackStatus, FeedbackType, NotificationType, UserRole
+from app.models.attachment import Attachment
+from app.models.enums import FeedbackPriority, FeedbackStatus, FeedbackType, NotificationType, UserRole
 from app.models.feedback import Feedback
 from app.models.internal_note import InternalNote
 from app.models.notification import Notification
@@ -22,11 +27,21 @@ from app.schemas.feedback import (
     FeedbackUpdateByStudent,
     InternalNoteCreate,
 )
+from app.services.email import send_plain_email
 from app.services.priority import detect_priority
 from app.services.profanity import contains_profanity
 from app.services.similarity import detect_similarity_group
 
 router = APIRouter()
+
+ALLOWED_TRANSITIONS: dict[FeedbackStatus, set[FeedbackStatus]] = {
+    FeedbackStatus.pending: {FeedbackStatus.in_review, FeedbackStatus.assigned, FeedbackStatus.rejected},
+    FeedbackStatus.in_review: {FeedbackStatus.assigned, FeedbackStatus.working, FeedbackStatus.resolved, FeedbackStatus.rejected},
+    FeedbackStatus.assigned: {FeedbackStatus.in_review, FeedbackStatus.working, FeedbackStatus.resolved},
+    FeedbackStatus.working: {FeedbackStatus.in_review, FeedbackStatus.resolved},
+    FeedbackStatus.resolved: set(),
+    FeedbackStatus.rejected: set(),
+}
 
 
 def _serialize_feedback(feedback: Feedback, viewer_role: UserRole) -> FeedbackOut:
@@ -34,6 +49,13 @@ def _serialize_feedback(feedback: Feedback, viewer_role: UserRole) -> FeedbackOu
     description = feedback.description
     if viewer_role == UserRole.university_management:
         description = "[REDACTED]"
+
+    include_internal = viewer_role in {
+        UserRole.academic_staff,
+        UserRole.department_head,
+        UserRole.student_affairs,
+        UserRole.facilities_management,
+    }
 
     return FeedbackOut(
         id=feedback.id,
@@ -47,13 +69,17 @@ def _serialize_feedback(feedback: Feedback, viewer_role: UserRole) -> FeedbackOu
         student_id=feedback.student_id,
         student_name=student_name,
         assigned_to_id=feedback.assigned_to_id,
+        assigned_by_id=feedback.assigned_by_id,
+        assigned_at=feedback.assigned_at,
+        due_at=feedback.due_at,
         department=feedback.department,
         resolution_summary=feedback.resolution_summary,
         similarity_group=feedback.similarity_group,
+        attachments=[f"/api/v1/feedback/{feedback.id}/attachments/{item.id}" for item in feedback.attachments],
         created_at=feedback.created_at,
         updated_at=feedback.updated_at,
-        notes=feedback.notes,
-        status_history=feedback.status_history,
+        notes=feedback.notes if include_internal else [],
+        status_history=feedback.status_history if include_internal else [],
     )
 
 
@@ -73,6 +99,19 @@ def _notify(db: Session, user_id: str, title: str, message: str, feedback_id: st
             type=level,
         )
     )
+
+
+def _can_modify_status(current_user: User, feedback: Feedback) -> bool:
+    role = current_user.role
+    if role == UserRole.academic_staff:
+        return feedback.type == FeedbackType.academic and feedback.department == current_user.department
+    if role == UserRole.department_head:
+        return feedback.type == FeedbackType.academic and feedback.department == current_user.department
+    if role == UserRole.student_affairs:
+        return feedback.type == FeedbackType.non_academic
+    if role == UserRole.facilities_management:
+        return feedback.type == FeedbackType.non_academic
+    return False
 
 
 @router.post("/", response_model=FeedbackOut, status_code=status.HTTP_201_CREATED)
@@ -99,6 +138,16 @@ def create_feedback(
         subject=payload.subject,
         description=payload.description,
     )
+    if similarity_group:
+        recurring_count = (
+            db.query(Feedback)
+            .filter(Feedback.similarity_group == similarity_group, Feedback.type == payload.type)
+            .count()
+        )
+        if recurring_count >= 5:
+            priority = FeedbackPriority.urgent
+        elif recurring_count >= 2 and priority in {FeedbackPriority.low, FeedbackPriority.medium}:
+            priority = FeedbackPriority.high
 
     feedback = Feedback(
         type=payload.type,
@@ -122,8 +171,7 @@ def create_feedback(
         )
     )
 
-    # High-priority alerts go directly to relevant staff.
-    if priority in {"high", "urgent"}:
+    if priority in {FeedbackPriority.high, FeedbackPriority.urgent}:
         target_role = UserRole.student_affairs if payload.type == FeedbackType.non_academic else UserRole.department_head
         staff_targets = db.query(User).filter(User.role == target_role).all()
         for staff in staff_targets:
@@ -139,10 +187,9 @@ def create_feedback(
             )
 
     db.commit()
-    db.refresh(feedback)
     feedback = (
         db.query(Feedback)
-        .options(joinedload(Feedback.student), joinedload(Feedback.notes), joinedload(Feedback.status_history))
+        .options(joinedload(Feedback.student), joinedload(Feedback.notes), joinedload(Feedback.status_history), joinedload(Feedback.attachments))
         .filter(Feedback.id == feedback.id)
         .first()
     )
@@ -159,7 +206,12 @@ def list_feedback(
     if current_user.role in {UserRole.university_management, UserRole.ict_admin}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Use analytics endpoints for this role")
 
-    query = db.query(Feedback).options(joinedload(Feedback.student), joinedload(Feedback.notes), joinedload(Feedback.status_history))
+    query = db.query(Feedback).options(
+        joinedload(Feedback.student),
+        joinedload(Feedback.notes),
+        joinedload(Feedback.status_history),
+        joinedload(Feedback.attachments),
+    )
     if feedback_type:
         query = query.filter(Feedback.type == feedback_type)
     if status_filter:
@@ -174,7 +226,7 @@ def list_feedback(
     elif current_user.role == UserRole.student_affairs:
         query = query.filter(Feedback.type == FeedbackType.non_academic)
     elif current_user.role == UserRole.facilities_management:
-        query = query.filter(Feedback.type == FeedbackType.non_academic, Feedback.assigned_to_id == current_user.id)
+        query = query.filter(Feedback.type == FeedbackType.non_academic)
 
     items = query.order_by(Feedback.created_at.desc()).all()
     return FeedbackListResponse(items=[_serialize_feedback(row, current_user.role) for row in items], total=len(items))
@@ -188,7 +240,7 @@ def get_feedback(
 ) -> FeedbackOut:
     feedback = (
         db.query(Feedback)
-        .options(joinedload(Feedback.student), joinedload(Feedback.notes), joinedload(Feedback.status_history))
+        .options(joinedload(Feedback.student), joinedload(Feedback.notes), joinedload(Feedback.status_history), joinedload(Feedback.attachments))
         .filter(Feedback.id == feedback_id)
         .first()
     )
@@ -206,7 +258,7 @@ def update_feedback_by_student(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> FeedbackOut:
-    feedback = db.query(Feedback).options(joinedload(Feedback.student)).filter(Feedback.id == feedback_id).first()
+    feedback = db.query(Feedback).options(joinedload(Feedback.student), joinedload(Feedback.attachments)).filter(Feedback.id == feedback_id).first()
     if not feedback:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found")
     if current_user.role != UserRole.student or feedback.student_id != current_user.id:
@@ -244,32 +296,25 @@ def update_feedback_status(
 ) -> FeedbackOut:
     feedback = (
         db.query(Feedback)
-        .options(joinedload(Feedback.student), joinedload(Feedback.notes), joinedload(Feedback.status_history))
+        .options(joinedload(Feedback.student), joinedload(Feedback.notes), joinedload(Feedback.status_history), joinedload(Feedback.attachments))
         .filter(Feedback.id == feedback_id)
         .first()
     )
     if not feedback:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found")
 
-    role = current_user.role
-    if role == UserRole.academic_staff:
-        allowed = feedback.type == FeedbackType.academic and feedback.department == current_user.department
-    elif role == UserRole.department_head:
-        allowed = feedback.type == FeedbackType.academic and feedback.department == current_user.department
-    elif role == UserRole.student_affairs:
-        allowed = feedback.type == FeedbackType.non_academic
-    elif role == UserRole.facilities_management:
-        allowed = feedback.type == FeedbackType.non_academic and feedback.assigned_to_id == current_user.id
-    else:
-        allowed = False
-    if not allowed:
+    if not _can_modify_status(current_user, feedback):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
 
-    if role == UserRole.facilities_management and payload.status not in {
-        FeedbackStatus.working,
-        FeedbackStatus.resolved,
-    }:
+    if current_user.role == UserRole.facilities_management and payload.status not in {FeedbackStatus.working, FeedbackStatus.resolved}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Facilities can only set working or resolved status")
+
+    if payload.status != feedback.status:
+        allowed = ALLOWED_TRANSITIONS.get(feedback.status, set())
+        if payload.status not in allowed:
+            # Heads can reopen resolved/rejected issues.
+            if current_user.role not in {UserRole.department_head, UserRole.student_affairs} or payload.status != FeedbackStatus.in_review:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid status transition")
 
     _record_status_change(db, feedback, payload.status, current_user.id, payload.note)
     if payload.resolution_summary:
@@ -285,7 +330,7 @@ def update_feedback_status(
     )
     db.commit()
     db.refresh(feedback)
-    return _serialize_feedback(feedback, role)
+    return _serialize_feedback(feedback, current_user.role)
 
 
 @router.post("/{feedback_id}/assign", response_model=FeedbackOut)
@@ -297,13 +342,15 @@ def assign_feedback(
 ) -> FeedbackOut:
     feedback = (
         db.query(Feedback)
-        .options(joinedload(Feedback.student), joinedload(Feedback.notes), joinedload(Feedback.status_history))
+        .options(joinedload(Feedback.student), joinedload(Feedback.notes), joinedload(Feedback.status_history), joinedload(Feedback.attachments))
         .filter(Feedback.id == feedback_id)
         .first()
     )
     assignee = db.query(User).filter(User.id == payload.assignee_id, User.is_active.is_(True)).first()
     if not feedback or not assignee:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback or assignee not found")
+    if feedback.status in {FeedbackStatus.resolved, FeedbackStatus.rejected}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot assign a closed issue")
 
     if current_user.role == UserRole.student_affairs:
         if feedback.type != FeedbackType.non_academic or assignee.role != UserRole.facilities_management:
@@ -320,6 +367,10 @@ def assign_feedback(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only Student Affairs or Department Heads can assign")
 
     feedback.assigned_to_id = assignee.id
+    feedback.assigned_by_id = current_user.id
+    feedback.assigned_at = datetime.now(timezone.utc)
+    feedback.due_at = payload.due_at
+    feedback.overdue_alert_sent = False
     _record_status_change(db, feedback, FeedbackStatus.assigned, current_user.id, payload.note or "Assigned")
     _notify(
         db,
@@ -329,6 +380,15 @@ def assign_feedback(
         feedback.id,
         NotificationType.warning,
     )
+    if current_user.id != assignee.id:
+        _notify(
+            db,
+            current_user.id,
+            "Assignment confirmed",
+            f"You assigned '{feedback.subject}' with due date {payload.due_at.isoformat() if payload.due_at else 'none'}.",
+            feedback.id,
+            NotificationType.info,
+        )
     db.commit()
     db.refresh(feedback)
     return _serialize_feedback(feedback, current_user.role)
@@ -343,7 +403,7 @@ def add_internal_note(
 ) -> FeedbackOut:
     feedback = (
         db.query(Feedback)
-        .options(joinedload(Feedback.student), joinedload(Feedback.notes), joinedload(Feedback.status_history))
+        .options(joinedload(Feedback.student), joinedload(Feedback.notes), joinedload(Feedback.status_history), joinedload(Feedback.attachments))
         .filter(Feedback.id == feedback_id)
         .first()
     )
@@ -372,14 +432,13 @@ def escalate_feedback(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only operational staff can escalate")
 
     if feedback.type == FeedbackType.academic:
-        heads = db.query(User).filter(User.role == UserRole.department_head, User.department == feedback.department).all()
-        recipients = heads
+        recipients = db.query(User).filter(User.role == UserRole.department_head, User.department == feedback.department).all()
     else:
         recipients = db.query(User).filter(User.role == UserRole.student_affairs).all()
-    for user in recipients:
+    for recipient in recipients:
         _notify(
             db,
-            user.id,
+            recipient.id,
             "Escalated feedback",
             f"Feedback '{feedback.subject}' has been escalated for urgent review.",
             feedback.id,
@@ -387,3 +446,130 @@ def escalate_feedback(
         )
     db.commit()
     return MessageResponse(message="Feedback escalated successfully.")
+
+
+@router.post("/overdue/check", response_model=MessageResponse)
+def check_overdue_assignments(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MessageResponse:
+    if current_user.role not in {UserRole.ict_admin, UserRole.department_head, UserRole.student_affairs}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+
+    now = datetime.now(timezone.utc)
+    overdue_items = (
+        db.query(Feedback)
+        .filter(
+            Feedback.due_at.is_not(None),
+            Feedback.due_at < now,
+            Feedback.status.notin_([FeedbackStatus.resolved, FeedbackStatus.rejected]),
+            Feedback.overdue_alert_sent.is_(False),
+        )
+        .all()
+    )
+
+    for item in overdue_items:
+        if item.assigned_to_id:
+            _notify(
+                db,
+                item.assigned_to_id,
+                "Overdue assignment",
+                f"Task '{item.subject}' is overdue. Please resolve immediately.",
+                item.id,
+                NotificationType.warning,
+            )
+            assignee = db.query(User).filter(User.id == item.assigned_to_id).first()
+            if assignee:
+                send_plain_email(assignee.email, "PAU Vox Overdue Task", f"Task '{item.subject}' is overdue.")
+
+        if item.assigned_by_id:
+            _notify(
+                db,
+                item.assigned_by_id,
+                "Assigned task overdue",
+                f"Task '{item.subject}' assigned by you is overdue.",
+                item.id,
+                NotificationType.warning,
+            )
+
+        item.overdue_alert_sent = True
+
+    db.commit()
+    return MessageResponse(message=f"Overdue check complete. {len(overdue_items)} task(s) flagged.")
+
+
+@router.post("/{feedback_id}/attachments", response_model=FeedbackOut)
+async def upload_attachment(
+    feedback_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> FeedbackOut:
+    feedback = (
+        db.query(Feedback)
+        .options(joinedload(Feedback.student), joinedload(Feedback.notes), joinedload(Feedback.status_history), joinedload(Feedback.attachments))
+        .filter(Feedback.id == feedback_id)
+        .first()
+    )
+    if not feedback:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found")
+
+    can_upload = False
+    if current_user.role == UserRole.student:
+        can_upload = feedback.student_id == current_user.id and feedback.status == FeedbackStatus.pending
+    elif current_user.role in {UserRole.facilities_management, UserRole.student_affairs, UserRole.department_head, UserRole.academic_staff}:
+        can_upload = can_view_feedback(current_user, feedback)
+    if not can_upload:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+
+    content = await file.read()
+    if len(content) > settings.max_upload_size_bytes:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Attachment exceeds size limit")
+
+    safe_name = Path(file.filename or "upload.bin").name
+    storage_name = f"{feedback_id}_{secrets.token_hex(8)}_{safe_name}"
+    storage_path = Path(settings.upload_dir) / storage_name
+    storage_path.write_bytes(content)
+
+    attachment = Attachment(
+        feedback_id=feedback_id,
+        uploaded_by_id=current_user.id,
+        file_name=safe_name,
+        file_path=str(storage_path),
+        content_type=file.content_type or "application/octet-stream",
+    )
+    db.add(attachment)
+    db.commit()
+    feedback = (
+        db.query(Feedback)
+        .options(joinedload(Feedback.student), joinedload(Feedback.notes), joinedload(Feedback.status_history), joinedload(Feedback.attachments))
+        .filter(Feedback.id == feedback_id)
+        .first()
+    )
+    return _serialize_feedback(feedback, current_user.role)
+
+
+@router.get("/{feedback_id}/attachments/{attachment_id}")
+def download_attachment(
+    feedback_id: str,
+    attachment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    feedback = db.query(Feedback).filter(Feedback.id == feedback_id).first()
+    if not feedback:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found")
+    if not can_view_feedback(current_user, feedback):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+
+    attachment = (
+        db.query(Attachment)
+        .filter(Attachment.id == attachment_id, Attachment.feedback_id == feedback_id)
+        .first()
+    )
+    if not attachment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
+    if not Path(attachment.file_path).exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment file missing")
+
+    return FileResponse(path=attachment.file_path, filename=attachment.file_name, media_type=attachment.content_type)

@@ -1,9 +1,9 @@
-from collections import Counter
-from datetime import datetime
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta, timezone
 from io import BytesIO, StringIO
 import csv
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
@@ -24,9 +24,9 @@ def _guard_analytics_access(current_user: User, department: str | None):
         return
     if current_user.role == UserRole.department_head:
         if department and department != current_user.department:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Department scope violation")
+            raise HTTPException(status_code=403, detail="Department scope violation")
         return
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Analytics access is restricted")
+    raise HTTPException(status_code=403, detail="Analytics access is restricted")
 
 
 def _filtered_feedback(db: Session, current_user: User, department: str | None):
@@ -77,6 +77,51 @@ def get_analytics(
     _guard_analytics_access(current_user, department)
     feedbacks = _filtered_feedback(db, current_user, department)
     return _build_analytics(feedbacks)
+
+
+@router.get("/trends")
+def get_trends(
+    days: int = Query(default=30, ge=7, le=365),
+    department: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _guard_analytics_access(current_user, department)
+    feedbacks = _filtered_feedback(db, current_user, department)
+
+    end_date = datetime.now(timezone.utc).date()
+    start_date = end_date - timedelta(days=days - 1)
+
+    buckets = defaultdict(lambda: {"date": "", "submitted": 0, "resolved": 0, "avg_resolution_hours": 0.0, "resolution_samples": 0})
+    for idx in range(days):
+        day = start_date + timedelta(days=idx)
+        key = day.isoformat()
+        buckets[key]["date"] = key
+
+    for item in feedbacks:
+        created_day = item.created_at.date().isoformat()
+        if created_day in buckets:
+            buckets[created_day]["submitted"] += 1
+
+        if item.status == FeedbackStatus.resolved:
+            resolved_day = item.updated_at.date().isoformat()
+            if resolved_day in buckets:
+                buckets[resolved_day]["resolved"] += 1
+                delta_hours = (item.updated_at - item.created_at).total_seconds() / 3600
+                buckets[resolved_day]["avg_resolution_hours"] += delta_hours
+                buckets[resolved_day]["resolution_samples"] += 1
+
+    result = []
+    for key in sorted(buckets.keys()):
+        row = buckets[key]
+        if row["resolution_samples"]:
+            row["avg_resolution_hours"] = round(row["avg_resolution_hours"] / row["resolution_samples"], 2)
+        else:
+            row["avg_resolution_hours"] = 0.0
+        row.pop("resolution_samples", None)
+        result.append(row)
+
+    return {"items": result, "days": days}
 
 
 @router.get("/export")

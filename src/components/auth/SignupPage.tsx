@@ -1,11 +1,10 @@
 import { useState } from 'react'
-import { useAuth, UserRole } from '../../contexts/AuthContext'
+import { useAuth } from '../../contexts/AuthContext'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
 import { Alert, AlertDescription } from '../ui/alert'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 
 interface SignupPageProps {
@@ -19,7 +18,6 @@ export function SignupPage({ onNavigate }: SignupPageProps) {
     email: '',
     password: '',
     confirmPassword: '',
-    role: 'student' as UserRole
   })
   const [error, setError] = useState('')
 
@@ -43,7 +41,7 @@ export function SignupPage({ onNavigate }: SignupPageProps) {
     }
 
     try {
-      await signup(formData.email, formData.password, formData.name, formData.role)
+      await signup(formData.email, formData.password, formData.name)
       onNavigate('verify-email')
     } catch (err: any) {
       setError(err.message || 'Failed to create account')
@@ -53,11 +51,7 @@ export function SignupPage({ onNavigate }: SignupPageProps) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-blue-50 p-4">
       <div className="w-full max-w-md">
-        <Button
-          variant="ghost"
-          onClick={() => onNavigate('home')}
-          className="mb-4"
-        >
+        <Button variant="ghost" onClick={() => onNavigate('home')} className="mb-4">
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back to Home
         </Button>
@@ -71,7 +65,7 @@ export function SignupPage({ onNavigate }: SignupPageProps) {
               <CardTitle className="text-2xl">Create Account</CardTitle>
             </div>
             <CardDescription>
-              Sign up with your PAU email to get started
+              Sign up with your PAU email to get started. New accounts are created as Student by default.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -98,27 +92,6 @@ export function SignupPage({ onNavigate }: SignupPageProps) {
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   required
                 />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="role">Role</Label>
-                <Select
-                  value={formData.role}
-                  onValueChange={(value) => setFormData({ ...formData, role: value as UserRole })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="student">Student</SelectItem>
-                    <SelectItem value="academic_staff">Academic Staff</SelectItem>
-                    <SelectItem value="student_affairs">Student Affairs</SelectItem>
-                    <SelectItem value="facilities_management">Facilities Management</SelectItem>
-                    <SelectItem value="department_head">Department Head</SelectItem>
-                    <SelectItem value="university_management">University Management</SelectItem>
-                    <SelectItem value="ict_admin">ICT Admin</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
 
               <div className="space-y-2">

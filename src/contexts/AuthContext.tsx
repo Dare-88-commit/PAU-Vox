@@ -17,6 +17,7 @@ export interface User {
   role: UserRole;
   department?: string;
   verified: boolean;
+  isMajorAdmin?: boolean;
 }
 
 interface AuthContextType {
@@ -24,12 +25,7 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (
-    email: string,
-    password: string,
-    name: string,
-    role: UserRole,
-  ) => Promise<void>;
+  signup: (email: string, password: string, name: string) => Promise<void>;
   verifyEmail: (code: string) => Promise<void>;
   resendVerificationCode: () => Promise<void>;
   logout: () => void;
@@ -43,6 +39,7 @@ type BackendUser = {
   role: UserRole;
   department?: string | null;
   is_verified: boolean;
+  is_major_admin?: boolean;
 };
 
 type LoginResponse = {
@@ -55,7 +52,6 @@ type PendingSignup = {
   email: string;
   password: string;
   name: string;
-  role: UserRole;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -72,6 +68,7 @@ function mapBackendUser(user: BackendUser): User {
     role: user.role,
     department: user.department || undefined,
     verified: user.is_verified,
+    isMajorAdmin: !!user.is_major_admin,
   };
 }
 
@@ -126,12 +123,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const signup = async (
-    email: string,
-    password: string,
-    name: string,
-    role: UserRole,
-  ) => {
+  const signup = async (email: string, password: string, name: string) => {
     setLoading(true);
     try {
       await apiRequest<{ message: string }>("/auth/signup", {
@@ -140,19 +132,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email,
           password,
           full_name: name,
-          role,
         },
       });
 
-      const pending: PendingSignup = { email, password, name, role };
+      const pending: PendingSignup = { email, password, name };
       localStorage.setItem(PENDING_SIGNUP_KEY, JSON.stringify(pending));
 
       const placeholder: User = {
         id: "pending",
         email,
         name,
-        role,
+        role: "student",
         verified: false,
+        isMajorAdmin: false,
       };
       setUser(placeholder);
       localStorage.setItem(USER_KEY, JSON.stringify(placeholder));

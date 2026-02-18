@@ -17,20 +17,25 @@ import { StudentAffairsDashboard } from './components/dashboards/StudentAffairsD
 import { FacilitiesManagementDashboard } from './components/dashboards/FacilitiesManagementDashboard'
 import { UniversityManagementDashboard } from './components/dashboards/UniversityManagementDashboard'
 import { AnalyticsPage } from './components/dashboards/AnalyticsPage'
+import { StaffInbox } from './components/dashboards/StaffInbox'
 import { AboutPage } from './components/AboutPage'
 import { SettingsPage } from './components/SettingsPage'
 import { ProfilePage } from './components/ProfilePage'
 import { HelpPage } from './components/HelpPage'
 import { NotificationCenter } from './components/NotificationCenter'
+import { SurveysPage } from './components/SurveysPage'
+import { HostelRatingsPage } from './components/HostelRatingsPage'
+import { AdminUsersPage } from './components/AdminUsersPage'
 import { Toaster } from './components/ui/sonner'
 import { toast } from 'sonner'
+import { apiRequest } from './lib/api'
 
-type Page = 
-  | 'home' 
-  | 'login' 
-  | 'signup' 
-  | 'verify-email' 
-  | 'feedback' 
+type Page =
+  | 'home'
+  | 'login'
+  | 'signup'
+  | 'verify-email'
+  | 'feedback'
   | 'dashboard'
   | 'my-feedback'
   | 'staff-inbox'
@@ -40,63 +45,72 @@ type Page =
   | 'profile'
   | 'help'
   | 'notifications'
+  | 'surveys'
+  | 'hostel-ratings'
+  | 'admin-users'
 
 function AppContent() {
-  const { user, isAuthenticated } = useAuth()
+  const { user, token, isAuthenticated } = useAuth()
   const [currentPage, setCurrentPage] = useState<Page>('home')
 
-  // Redirect to dashboard if already authenticated
   useEffect(() => {
     if (isAuthenticated && user?.verified && currentPage === 'home') {
       setCurrentPage('dashboard')
     }
   }, [isAuthenticated, user, currentPage])
 
-  // Redirect to verify email if not verified
   useEffect(() => {
     if (isAuthenticated && user && !user.verified && currentPage !== 'verify-email') {
       setCurrentPage('verify-email')
     }
   }, [isAuthenticated, user, currentPage])
 
-  // Enhanced route protection - check on URL access attempts
   useEffect(() => {
-    const protectRoutes = () => {
-      if (user?.role === 'student') {
-        const staffOnlyPages: Page[] = ['staff-inbox', 'analytics']
-        if (staffOnlyPages.includes(currentPage)) {
-          toast.error('Access denied. Redirecting to your dashboard.')
-          setCurrentPage('dashboard')
-        }
-      }
-
-      // Protect admin routes
-      const managementOnlyPages: Page[] = ['analytics']
-      const isManagement = user && ['university_management', 'ict_admin', 'department_head'].includes(user.role)
-      if (managementOnlyPages.includes(currentPage) && !isManagement && user?.role !== 'student_affairs' && user?.role !== 'facilities_management' && user?.role !== 'academic_staff') {
-        toast.error('Access denied. Insufficient permissions.')
-        setCurrentPage('dashboard')
-      }
+    if (!user) return
+    if (currentPage === 'analytics' && !['university_management', 'department_head'].includes(user.role)) {
+      toast.error('Access denied. Analytics is restricted.')
+      setCurrentPage('dashboard')
     }
-
-    protectRoutes()
+    if (currentPage === 'staff-inbox' && user.role === 'student') {
+      toast.error('Access denied.')
+      setCurrentPage('dashboard')
+    }
+    if (currentPage === 'admin-users' && user.role !== 'ict_admin') {
+      toast.error('Access denied. Admin Users is restricted to ICT Admin accounts.')
+      setCurrentPage('dashboard')
+    }
   }, [currentPage, user])
 
-  const handleNavigate = (page: Page) => {
-    // Role-based route guarding
-    if (user?.role === 'student') {
-      const staffOnlyPages: Page[] = ['staff-inbox', 'analytics']
-      if (staffOnlyPages.includes(page)) {
-        toast.error('Access denied. This page is only available to staff members.')
-        setCurrentPage('dashboard')
-        return
+  useEffect(() => {
+    if (!token || !user || !['department_head', 'student_affairs', 'ict_admin'].includes(user.role)) return
+    const run = async () => {
+      try {
+        await apiRequest<{ message: string }>('/feedback/overdue/check', { method: 'POST', token })
+      } catch {
+        // no-op
       }
     }
-    
+    void run()
+    const t = setInterval(() => {
+      void run()
+    }, 60000)
+    return () => clearInterval(t)
+  }, [token, user?.role])
+
+  const handleNavigate = (page: Page) => {
+    if (page === 'analytics' && user && !['university_management', 'department_head'].includes(user.role)) {
+      toast.error('Access denied. Analytics is only available to management and department heads.')
+      setCurrentPage('dashboard')
+      return
+    }
+    if (page === 'admin-users' && user && user.role !== 'ict_admin') {
+      toast.error('Access denied. Admin Users is restricted to ICT Admin accounts.')
+      setCurrentPage('dashboard')
+      return
+    }
     setCurrentPage(page)
   }
 
-  // Render role-specific dashboard
   const renderDashboard = () => {
     if (!user) return null
 
@@ -112,7 +126,7 @@ function AppContent() {
       case 'department_head':
         return <AcademicStaffDashboard onNavigate={handleNavigate} />
       case 'university_management':
-        return <UniversityManagementDashboard onNavigate={handleNavigate} />
+        return <AnalyticsPage onNavigate={handleNavigate} />
       case 'ict_admin':
         return <UniversityManagementDashboard onNavigate={handleNavigate} />
       default:
@@ -120,9 +134,7 @@ function AppContent() {
     }
   }
 
-  // Render current page
   const renderPage = () => {
-    // Pages that shouldn't have Navbar
     const noNavbarPages = ['login', 'signup', 'verify-email']
     const showNavbar = !noNavbarPages.includes(currentPage) || isAuthenticated
 
@@ -143,21 +155,14 @@ function AppContent() {
         case 'my-feedback':
           return renderDashboard()
         case 'staff-inbox':
-          // Route guard: prevent students from accessing staff inbox
-          if (user?.role === 'student') {
-            toast.error('Access denied. Redirecting to dashboard.')
-            setTimeout(() => setCurrentPage('dashboard'), 100)
-            return renderDashboard()
-          }
+          if (user?.role === 'student') return renderDashboard()
           return <StaffInbox onNavigate={handleNavigate} />
         case 'analytics':
-          // Route guard: prevent students from accessing analytics
-          if (user?.role === 'student') {
-            toast.error('Access denied. Redirecting to dashboard.')
-            setTimeout(() => setCurrentPage('dashboard'), 100)
-            return renderDashboard()
-          }
+          if (!user || !['university_management', 'department_head'].includes(user.role)) return renderDashboard()
           return <AnalyticsPage onNavigate={handleNavigate} />
+        case 'admin-users':
+          if (!user || user.role !== 'ict_admin') return renderDashboard()
+          return <AdminUsersPage onNavigate={handleNavigate} />
         case 'about':
           return <AboutPage onNavigate={handleNavigate} />
         case 'settings':
@@ -168,6 +173,10 @@ function AppContent() {
           return <HelpPage onNavigate={handleNavigate} />
         case 'notifications':
           return <NotificationCenter onNavigate={handleNavigate} />
+        case 'surveys':
+          return <SurveysPage onNavigate={handleNavigate} />
+        case 'hostel-ratings':
+          return <HostelRatingsPage onNavigate={handleNavigate} />
         default:
           return <LandingPage onNavigate={handleNavigate} />
       }

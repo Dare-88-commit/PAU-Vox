@@ -20,7 +20,11 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/pau_vox
       SECRET_KEY: replace-me
+      FRONTEND_ORIGINS: http://localhost:5173,http://localhost:3000
       FRONTEND_ORIGIN: http://localhost:5173
+      MAJOR_ADMIN_EMAIL: owner@pau.edu.ng
+      MAJOR_ADMIN_PASSWORD: ChangeMeNow123!
+      MAJOR_ADMIN_NAME: PAU Vox Owner
     ports:
       - "8000:8000"
     depends_on:

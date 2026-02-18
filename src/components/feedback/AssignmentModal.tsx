@@ -13,7 +13,8 @@ import { Button } from '../ui/button'
 import { Label } from '../ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import { Textarea } from '../ui/textarea'
-import { UserCheck, Users } from 'lucide-react'
+import { Input } from '../ui/input'
+import { UserCheck, Users, Clock3 } from 'lucide-react'
 import { toast } from 'sonner'
 import { apiRequest } from '../../lib/api'
 
@@ -32,10 +33,11 @@ interface StaffMember {
 
 export function AssignmentModal({ feedback, open, onClose }: AssignmentModalProps) {
   const { user, token } = useAuth()
-  const { assignFeedback, updateFeedbackStatus, addInternalNote } = useFeedback()
+  const { assignFeedback, addInternalNote } = useFeedback()
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([])
   const [selectedStaff, setSelectedStaff] = useState('')
   const [assignmentNote, setAssignmentNote] = useState('')
+  const [dueAt, setDueAt] = useState('')
   const [loading, setLoading] = useState(false)
   const [staffLoading, setStaffLoading] = useState(false)
 
@@ -58,8 +60,6 @@ export function AssignmentModal({ feedback, open, onClose }: AssignmentModalProp
     void loadStaff()
   }, [open, token])
 
-  const relevantStaff = staffMembers
-
   const handleAssign = async () => {
     if (!selectedStaff) {
       toast.error('Please select a staff member')
@@ -70,28 +70,24 @@ export function AssignmentModal({ feedback, open, onClose }: AssignmentModalProp
 
     try {
       const staffMember = staffMembers.find(s => s.id === selectedStaff)
-      
-      // Assign the feedback
-      await assignFeedback(feedback.id, selectedStaff, user?.name || 'System')
-      
-      // Update status to 'assigned'
-      await updateFeedbackStatus(feedback.id, 'assigned')
-      
-      // Add internal note about assignment
-      const note = assignmentNote.trim() 
-        ? `Assigned to ${staffMember?.name}. Note: ${assignmentNote}`
-        : `Assigned to ${staffMember?.name}`
-      
+      const dueAtIso = dueAt ? new Date(dueAt).toISOString() : undefined
+
+      await assignFeedback(feedback.id, selectedStaff, user?.name || 'System', dueAtIso)
+
+      const note = assignmentNote.trim()
+        ? `Assigned to ${staffMember?.full_name}. Note: ${assignmentNote}`
+        : `Assigned to ${staffMember?.full_name}`
+
       await addInternalNote(feedback.id, note, user?.name || 'System')
 
       toast.success(`Feedback assigned to ${staffMember?.full_name}`)
-      
-      // Reset and close
+
       setSelectedStaff('')
       setAssignmentNote('')
+      setDueAt('')
       onClose()
-    } catch (error) {
-      toast.error('Failed to assign feedback')
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to assign feedback')
     } finally {
       setLoading(false)
     }
@@ -111,17 +107,15 @@ export function AssignmentModal({ feedback, open, onClose }: AssignmentModalProp
         </DialogHeader>
 
         <div className="space-y-4 py-4">
-          {/* Feedback Summary */}
           <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
             <p className="font-medium text-sm text-gray-900 dark:text-white mb-1">
               {feedback.subject}
             </p>
             <p className="text-xs text-gray-600 dark:text-gray-400">
-              Category: {feedback.category} â€¢ Type: {feedback.type.replace('_', ' ')}
+              Category: {feedback.category} • Type: {feedback.type.replace('_', ' ')}
             </p>
           </div>
 
-          {/* Staff Selection */}
           <div className="space-y-2">
             <Label htmlFor="staff-select" className="flex items-center gap-2">
               <Users className="w-4 h-4" />
@@ -129,10 +123,10 @@ export function AssignmentModal({ feedback, open, onClose }: AssignmentModalProp
             </Label>
             <Select value={selectedStaff} onValueChange={setSelectedStaff}>
               <SelectTrigger id="staff-select">
-                <SelectValue placeholder={staffLoading ? "Loading staff..." : "Choose a staff member..."} />
+                <SelectValue placeholder={staffLoading ? 'Loading staff...' : 'Choose a staff member...'} />
               </SelectTrigger>
               <SelectContent>
-                {relevantStaff.map((staff) => (
+                {staffMembers.map((staff) => (
                   <SelectItem key={staff.id} value={staff.id}>
                     <div className="flex flex-col">
                       <span className="font-medium">{staff.full_name}</span>
@@ -146,7 +140,14 @@ export function AssignmentModal({ feedback, open, onClose }: AssignmentModalProp
             </Select>
           </div>
 
-          {/* Assignment Note */}
+          <div className="space-y-2">
+            <Label htmlFor="due-at" className="flex items-center gap-2">
+              <Clock3 className="w-4 h-4" />
+              Due Date/Time (Optional)
+            </Label>
+            <Input id="due-at" type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} />
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="assignment-note">Assignment Note (Optional)</Label>
             <Textarea
@@ -163,8 +164,8 @@ export function AssignmentModal({ feedback, open, onClose }: AssignmentModalProp
           <Button variant="outline" onClick={onClose} disabled={loading}>
             Cancel
           </Button>
-          <Button 
-            onClick={handleAssign} 
+          <Button
+            onClick={handleAssign}
             disabled={!selectedStaff || loading}
             className="bg-[#001F54] hover:bg-blue-900"
           >

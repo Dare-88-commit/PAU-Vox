@@ -13,7 +13,7 @@ def can_view_feedback(user: User, feedback: Feedback) -> bool:
     if user.role == UserRole.student_affairs:
         return feedback.type == FeedbackType.non_academic
     if user.role == UserRole.facilities_management:
-        return feedback.type == FeedbackType.non_academic and feedback.assigned_to_id == user.id
+        return feedback.type == FeedbackType.non_academic
     if user.role in {UserRole.university_management, UserRole.ict_admin}:
         return False
     return False

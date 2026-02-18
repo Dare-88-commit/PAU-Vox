@@ -16,6 +16,7 @@ import { Separator } from '../ui/separator'
 import { Label } from '../ui/label'
 import { Clock, User, FileText, MessageSquare, Upload } from 'lucide-react'
 import { toast } from 'sonner'
+import { API_BASE_URL } from '../../lib/api'
 
 function formatDistanceToNow(date: Date, options?: { addSuffix?: boolean }): string {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000)
@@ -54,10 +55,12 @@ interface FeedbackDetailModalProps {
 
 export function FeedbackDetailModal({ feedback, open, onClose }: FeedbackDetailModalProps) {
   const { user } = useAuth()
-  const { updateFeedbackStatus, addInternalNote } = useFeedback()
+  const { updateFeedbackStatus, addInternalNote, uploadAttachment } = useFeedback()
   const [newNote, setNewNote] = useState('')
   const [newStatus, setNewStatus] = useState<FeedbackStatus | ''>('')
   const [resolutionSummary, setResolutionSummary] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const apiOrigin = API_BASE_URL.replace(/\/api\/v1$/, '')
 
   if (!feedback) return null
 
@@ -93,6 +96,21 @@ export function FeedbackDetailModal({ feedback, open, onClose }: FeedbackDetailM
       } catch (err: any) {
         toast.error(err.message || 'Failed to add internal note')
       }
+    }
+  }
+
+  const handleUploadAttachment = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      setUploading(true)
+      await uploadAttachment(feedback.id, file)
+      toast.success('Attachment uploaded')
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to upload attachment')
+    } finally {
+      setUploading(false)
+      e.target.value = ''
     }
   }
 
@@ -229,13 +247,43 @@ export function FeedbackDetailModal({ feedback, open, onClose }: FeedbackDetailM
                     />
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Upload className="w-4 h-4" />
-                      <span>Optional: Upload resolution photo (placeholder)</span>
-                      <Button variant="outline" size="sm" className="ml-auto">
-                        Choose File
-                      </Button>
+                      <span>Optional: Upload resolution photo</span>
+                      <label className="ml-auto">
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept="image/*,.pdf"
+                          onChange={handleUploadAttachment}
+                        />
+                        <Button variant="outline" size="sm" disabled={uploading} asChild>
+                          <span>{uploading ? 'Uploading...' : 'Choose File'}</span>
+                        </Button>
+                      </label>
                     </div>
                   </div>
                 )}
+              </div>
+            </>
+          )}
+
+          {feedback.attachments && feedback.attachments.length > 0 && (
+            <>
+              <Separator />
+              <div className="space-y-2">
+                <h4 className="font-medium">Attachments</h4>
+                <div className="space-y-2">
+                  {feedback.attachments.map((url, index) => (
+                    <a
+                      key={url}
+                      href={`${apiOrigin}${url}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-sm text-[#001F54] hover:underline block"
+                    >
+                      Attachment {index + 1}
+                    </a>
+                  ))}
+                </div>
               </div>
             </>
           )}
@@ -289,3 +337,4 @@ export function FeedbackDetailModal({ feedback, open, onClose }: FeedbackDetailM
     </Dialog>
   )
 }
+

@@ -19,6 +19,8 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_major_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    role_assignment_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     submitted_feedback = relationship("Feedback", back_populates="student", foreign_keys="Feedback.student_id")

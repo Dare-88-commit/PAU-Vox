@@ -50,6 +50,7 @@ class FeedbackStatusUpdate(BaseModel):
 class FeedbackAssignRequest(BaseModel):
     assignee_id: str
     note: str | None = Field(default=None, max_length=2000)
+    due_at: datetime | None = None
 
 
 class InternalNoteCreate(BaseModel):
@@ -68,9 +69,13 @@ class FeedbackOut(BaseModel):
     student_id: str
     student_name: str | None
     assigned_to_id: str | None
+    assigned_by_id: str | None
+    assigned_at: datetime | None
+    due_at: datetime | None
     department: str | None
     resolution_summary: str | None
     similarity_group: str | None
+    attachments: list[str] = []
     created_at: datetime
     updated_at: datetime
     notes: list[InternalNoteOut] = []

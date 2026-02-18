@@ -7,7 +7,6 @@ class SignupRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     full_name: str = Field(min_length=2, max_length=120)
-    role: UserRole = UserRole.student
     department: str | None = Field(default=None, max_length=120)
 
 
@@ -25,6 +24,11 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=8, max_length=128)
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=8, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -39,6 +43,7 @@ class UserPublic(BaseModel):
     department: str | None = None
     is_verified: bool
     is_active: bool
+    is_major_admin: bool = False
 
     model_config = {"from_attributes": True}
 

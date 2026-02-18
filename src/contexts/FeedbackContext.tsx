@@ -20,6 +20,9 @@ export interface Feedback {
   createdAt: Date;
   updatedAt: Date;
   assignedTo?: string;
+  assignedBy?: string;
+  assignedAt?: Date;
+  dueAt?: Date;
   department?: string;
   resolutionSummary?: string;
   attachments?: string[];
@@ -45,8 +48,9 @@ interface FeedbackContextType {
     feedback: Omit<Feedback, "id" | "status" | "priority" | "createdAt" | "updatedAt">,
   ) => Promise<void>;
   updateFeedbackStatus: (id: string, status: FeedbackStatus, resolutionSummary?: string) => Promise<void>;
-  assignFeedback: (id: string, assignedTo: string, assignedBy: string) => Promise<void>;
+  assignFeedback: (id: string, assignedTo: string, assignedBy: string, dueAt?: string) => Promise<void>;
   addInternalNote: (feedbackId: string, note: string, author: string) => Promise<void>;
+  uploadAttachment: (feedbackId: string, file: File) => Promise<void>;
   checkProfanity: (text: string) => boolean;
   getUserFeedbacks: (userId: string) => Feedback[];
   getDepartmentFeedbacks: (department: string, type: FeedbackType) => Feedback[];
@@ -67,9 +71,13 @@ type BackendFeedback = {
   student_id: string;
   student_name?: string | null;
   assigned_to_id?: string | null;
+  assigned_by_id?: string | null;
+  assigned_at?: string | null;
+  due_at?: string | null;
   department?: string | null;
   resolution_summary?: string | null;
   similarity_group?: string | null;
+  attachments?: string[];
   created_at: string;
   updated_at: string;
   notes?: Array<{
@@ -106,9 +114,13 @@ function mapFeedback(input: BackendFeedback): Feedback {
     createdAt: new Date(input.created_at),
     updatedAt: new Date(input.updated_at),
     assignedTo: input.assigned_to_id || undefined,
+    assignedBy: input.assigned_by_id || undefined,
+    assignedAt: input.assigned_at ? new Date(input.assigned_at) : undefined,
+    dueAt: input.due_at ? new Date(input.due_at) : undefined,
     department: input.department || undefined,
     resolutionSummary: input.resolution_summary || undefined,
     similarityGroup: input.similarity_group || undefined,
+    attachments: input.attachments || [],
     internalNotes: (input.notes || []).map((note) => ({
       id: note.id,
       text: note.text,
@@ -187,14 +199,14 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
     setFeedbacks((prev) => prev.map((item) => (item.id === id ? mapFeedback(updated) : item)));
   };
 
-  const assignFeedback = async (id: string, assignedTo: string, assignedBy: string) => {
+  const assignFeedback = async (id: string, assignedTo: string, assignedBy: string, dueAt?: string) => {
     if (!token) {
       throw new Error("Please log in first.");
     }
     const updated = await apiRequest<BackendFeedback>(`/feedback/${id}/assign`, {
       method: "POST",
       token,
-      body: { assignee_id: assignedTo, note: `Assigned by ${assignedBy}` },
+      body: { assignee_id: assignedTo, note: `Assigned by ${assignedBy}`, due_at: dueAt },
     });
     setFeedbacks((prev) => prev.map((item) => (item.id === id ? mapFeedback(updated) : item)));
   };
@@ -211,6 +223,34 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
     setFeedbacks((prev) => prev.map((item) => (item.id === feedbackId ? mapFeedback(updated) : item)));
   };
 
+  const uploadAttachment = async (feedbackId: string, file: File) => {
+    if (!token) {
+      throw new Error("Please log in first.");
+    }
+    const formData = new FormData();
+    formData.append("file", file);
+    const baseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, "") || "http://localhost:8000/api/v1";
+    const response = await fetch(`${baseUrl}/feedback/${feedbackId}/attachments`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+    if (!response.ok) {
+      let message = "Attachment upload failed";
+      try {
+        const data = await response.json();
+        message = data.detail || message;
+      } catch {
+        // no-op
+      }
+      throw new Error(message);
+    }
+    const updated = (await response.json()) as BackendFeedback;
+    setFeedbacks((prev) => prev.map((item) => (item.id === feedbackId ? mapFeedback(updated) : item)));
+  };
+
   const filteredFeedbacks = useMemo(() => feedbacks, [feedbacks]);
 
   const getUserFeedbacks = (userId: string) => filteredFeedbacks.filter((feedback) => feedback.studentId === userId);
@@ -218,8 +258,7 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
   const getDepartmentFeedbacks = (department: string, type: FeedbackType) =>
     filteredFeedbacks.filter((feedback) => feedback.department === department && feedback.type === type);
 
-  const getAssignedFeedbacks = (assignedTo: string) =>
-    filteredFeedbacks.filter((feedback) => feedback.assignedTo === assignedTo);
+  const getAssignedFeedbacks = (assignedTo: string) => filteredFeedbacks.filter((feedback) => feedback.assignedTo === assignedTo);
 
   const getAllFeedbacks = () => filteredFeedbacks;
 
@@ -231,6 +270,7 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
         updateFeedbackStatus,
         assignFeedback,
         addInternalNote,
+        uploadAttachment,
         checkProfanity,
         getUserFeedbacks,
         getDepartmentFeedbacks,

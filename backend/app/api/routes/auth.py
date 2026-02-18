@@ -1,14 +1,18 @@
 from datetime import datetime, timedelta, timezone
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.session import get_db
 from app.models.email_verification_code import EmailVerificationCode
+from app.models.enums import UserRole
 from app.models.user import User
 from app.schemas.auth import (
+    ChangePasswordRequest,
     LoginRequest,
     ResendCodeRequest,
     SignupRequest,
@@ -17,12 +21,11 @@ from app.schemas.auth import (
     UserPublic,
     VerifyEmailRequest,
 )
-from app.models.enums import UserRole
 from app.schemas.common import MessageResponse
-from app.services.email import generate_verification_code, send_verification_email
-from app.core.config import settings
+from app.services.email import EmailDeliveryError, generate_verification_code, send_verification_email
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _enforce_pau_domain(email: str) -> None:
@@ -30,35 +33,49 @@ def _enforce_pau_domain(email: str) -> None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only @pau.edu.ng emails are allowed")
 
 
-def _create_and_send_code(db: Session, user: User) -> None:
+def _queue_verification_code(db: Session, user: User) -> str:
     code = generate_verification_code()
     expiry = datetime.now(timezone.utc) + timedelta(minutes=settings.email_verification_code_ttl_minutes)
     db.add(EmailVerificationCode(user_id=user.id, code=code, expires_at=expiry))
-    db.commit()
-    send_verification_email(user.email, code)
+    return code
 
 
 @router.post("/signup", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
 def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> MessageResponse:
     _enforce_pau_domain(payload.email)
-    existing = db.query(User).filter(User.email == payload.email.lower()).first()
+    email = payload.email.lower()
+    existing = db.query(User).filter(User.email == email).first()
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email is already registered")
 
     user = User(
-        email=payload.email.lower(),
+        email=email,
         full_name=payload.full_name.strip(),
-        role=payload.role,
+        role=UserRole.student,
         department=payload.department.strip() if payload.department else None,
         hashed_password=hash_password(payload.password),
         is_verified=False,
         is_active=True,
+        is_major_admin=False,
+        role_assignment_locked=False,
     )
+
     db.add(user)
-    db.commit()
-    db.refresh(user)
-    _create_and_send_code(db, user)
-    return MessageResponse(message="Signup successful. Check your email for the verification code.")
+    db.flush()
+    code = _queue_verification_code(db, user)
+
+    try:
+        send_verification_email(user.email, code)
+        db.commit()
+        return MessageResponse(message="Signup successful. Check your email for the verification code.")
+    except EmailDeliveryError:
+        if settings.email_delivery_required:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to send verification email")
+
+        db.commit()
+        logger.warning("SMTP unavailable in non-production mode. Verification code for %s: %s", user.email, code)
+        return MessageResponse(message="Signup successful. Email delivery unavailable in this environment; verification code is logged on the backend.")
 
 
 @router.post("/verify-email", response_model=MessageResponse)
@@ -94,8 +111,19 @@ def resend_code(payload: ResendCodeRequest, db: Session = Depends(get_db)) -> Me
     if user.is_verified:
         return MessageResponse(message="Email is already verified.")
 
-    _create_and_send_code(db, user)
-    return MessageResponse(message="Verification code resent.")
+    code = _queue_verification_code(db, user)
+    try:
+        send_verification_email(user.email, code)
+        db.commit()
+        return MessageResponse(message="Verification code resent.")
+    except EmailDeliveryError:
+        if settings.email_delivery_required:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to send verification email")
+
+        db.commit()
+        logger.warning("SMTP unavailable in non-production mode. Resent verification code for %s: %s", user.email, code)
+        return MessageResponse(message="Verification code regenerated. Email delivery unavailable in this environment; code is logged on the backend.")
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -115,6 +143,22 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
 @router.get("/me", response_model=UserPublic)
 def me(current_user: User = Depends(get_current_user)) -> UserPublic:
     return UserPublic.model_validate(current_user)
+
+
+@router.post("/change-password", response_model=MessageResponse)
+def change_password(
+    payload: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MessageResponse:
+    if not verify_password(payload.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+    if payload.current_password == payload.new_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New password must be different")
+
+    current_user.hashed_password = hash_password(payload.new_password)
+    db.commit()
+    return MessageResponse(message="Password updated successfully")
 
 
 @router.get("/staff-directory", response_model=list[StaffDirectoryUser])

@@ -28,6 +28,10 @@ class Feedback(Base):
     resolution_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     student_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     assigned_to_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    assigned_by_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    overdue_alert_sent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
@@ -37,3 +41,4 @@ class Feedback(Base):
     assignee = relationship("User", back_populates="assigned_feedback", foreign_keys=[assigned_to_id])
     notes = relationship("InternalNote", back_populates="feedback", cascade="all, delete-orphan")
     status_history = relationship("StatusHistory", back_populates="feedback", cascade="all, delete-orphan")
+    attachments = relationship("Attachment", cascade="all, delete-orphan")

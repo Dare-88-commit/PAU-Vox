@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from "react";
 import { toast } from "sonner";
 import { useAuth } from "./AuthContext";
 import { apiRequest } from "../lib/api";
@@ -49,9 +49,27 @@ function mapNotification(item: BackendNotification): Notification {
   };
 }
 
+function playWarningSound() {
+  try {
+    const context = new AudioContext();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.value = 880;
+    gain.gain.value = 0.08;
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.22);
+  } catch {
+    // no-op
+  }
+}
+
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const { token } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const prevUnreadWarningCount = useRef(0);
 
   const refreshNotifications = async () => {
     if (!token) {
@@ -60,7 +78,16 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }
     try {
       const rows = await apiRequest<BackendNotification[]>("/notifications", { token });
-      setNotifications(rows.map(mapNotification));
+      const mapped = rows.map(mapNotification);
+      setNotifications(mapped);
+
+      const unreadWarnings = mapped.filter(
+        (n) => !n.read && n.type === "warning" && /overdue/i.test(`${n.title} ${n.message}`),
+      ).length;
+      if (unreadWarnings > prevUnreadWarningCount.current) {
+        playWarningSound();
+      }
+      prevUnreadWarningCount.current = unreadWarnings;
     } catch {
       setNotifications([]);
     }
@@ -68,6 +95,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refreshNotifications();
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    const interval = setInterval(() => {
+      void refreshNotifications();
+    }, 30000);
+    return () => clearInterval(interval);
   }, [token]);
 
   const addNotification = (notification: Omit<Notification, "id" | "read" | "createdAt">) => {

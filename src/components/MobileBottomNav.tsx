@@ -1,4 +1,4 @@
-import { Home, MessageSquare, User, Bell, BarChart3 } from 'lucide-react'
+import { Home, MessageSquare, User, Bell, BarChart3, Shield } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
 interface MobileBottomNavProps {
@@ -8,15 +8,18 @@ interface MobileBottomNavProps {
 
 export function MobileBottomNav({ currentPage, onNavigate }: MobileBottomNavProps) {
   const { user } = useAuth()
-  
+
   if (!user) return null
 
   const isStaffOrAdmin = ['academic_staff', 'student_affairs', 'facilities_management', 'department_head', 'university_management', 'ict_admin'].includes(user.role)
+  const isIctAdmin = user.role === 'ict_admin'
 
   const navItems = [
     { id: 'dashboard', label: 'Home', icon: Home, show: true },
     { id: 'feedback', label: 'Submit', icon: MessageSquare, show: true },
+    { id: 'surveys', label: 'Surveys', icon: MessageSquare, show: true },
     { id: 'analytics', label: 'Analytics', icon: BarChart3, show: isStaffOrAdmin },
+    { id: 'admin-users', label: 'Admin', icon: Shield, show: isIctAdmin },
     { id: 'notifications', label: 'Alerts', icon: Bell, show: true },
     { id: 'profile', label: 'Profile', icon: User, show: true },
   ].filter(item => item.show)
@@ -27,7 +30,7 @@ export function MobileBottomNav({ currentPage, onNavigate }: MobileBottomNavProp
         {navItems.map((item) => {
           const Icon = item.icon
           const isActive = currentPage === item.id
-          
+
           return (
             <button
               key={item.id}
