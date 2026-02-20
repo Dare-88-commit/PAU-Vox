@@ -1,9 +1,10 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user
+from app.core.catalog import is_valid_hostel
 from app.db.session import get_db
 from app.models.enums import SurveyType, UserRole
 from app.models.survey import Survey, SurveyQuestion, SurveyResponse
@@ -13,16 +14,44 @@ from app.schemas.survey import (
     HostelRatingOut,
     SurveyAggregate,
     SurveyCreate,
+    SurveyResponseAnswerOut,
+    SurveyResponseDetailOut,
+    SurveyMyResponseOut,
     SurveyOut,
     SurveySubmitRequest,
 )
 
 router = APIRouter()
+EDIT_WINDOW_MINUTES = 60
 
 
 def _can_view_survey_results(user: User, survey: Survey) -> bool:
-    manager_roles = {UserRole.department_head, UserRole.student_affairs, UserRole.university_management}
+    manager_roles = {UserRole.department_head, UserRole.student_affairs, UserRole.university_management, UserRole.course_coordinator}
     return user.role in manager_roles or survey.created_by_id == user.id
+
+
+def _serialize_survey(survey: Survey, current_user: User) -> SurveyOut:
+    out = SurveyOut.model_validate(survey)
+    out.is_creator = survey.created_by_id == current_user.id
+    return out
+
+
+def _validated_answers(payload: SurveySubmitRequest, survey: Survey) -> list[dict]:
+    question_map = {q.id: q for q in survey.questions}
+    answers_out: list[dict] = []
+    for answer in payload.answers:
+        question = question_map.get(answer.question_id)
+        if not question:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid question id")
+        if answer.score > question.max_score:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Score exceeds question maximum")
+
+        detail = (answer.detail or "").strip() or None
+        if question.requires_detail and not detail:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Detail is required for: {question.prompt}")
+
+        answers_out.append({"question_id": answer.question_id, "score": answer.score, "detail": detail})
+    return answers_out
 
 
 @router.post("/", response_model=SurveyOut, status_code=status.HTTP_201_CREATED)
@@ -33,6 +62,8 @@ def create_survey(
 ) -> SurveyOut:
     if payload.type == SurveyType.hostel and not payload.target_hostel:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="target_hostel is required for hostel survey")
+    if payload.type == SurveyType.hostel and not is_valid_hostel(payload.target_hostel):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid hostel")
 
     survey = Survey(
         title=payload.title,
@@ -54,13 +85,15 @@ def create_survey(
                 survey_id=survey.id,
                 prompt=question.prompt,
                 max_score=question.max_score,
+                requires_detail=question.requires_detail,
+                detail_label=question.detail_label,
                 position=question.position,
             )
         )
 
     db.commit()
     created = db.query(Survey).options(joinedload(Survey.questions)).filter(Survey.id == survey.id).first()
-    return SurveyOut.model_validate(created)
+    return _serialize_survey(created, current_user)
 
 
 @router.get("/", response_model=list[SurveyOut])
@@ -79,7 +112,31 @@ def list_surveys(
         )
 
     surveys = query.order_by(Survey.created_at.desc()).all()
-    return [SurveyOut.model_validate(item) for item in surveys]
+    return [_serialize_survey(item, current_user) for item in surveys]
+
+
+@router.get("/{survey_id}/my-response", response_model=SurveyMyResponseOut | None)
+def my_response(
+    survey_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != UserRole.student:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only students can view this")
+
+    response = db.query(SurveyResponse).filter(SurveyResponse.survey_id == survey_id, SurveyResponse.student_id == current_user.id).first()
+    if not response:
+        return None
+
+    can_edit_until = response.submitted_at + timedelta(minutes=EDIT_WINDOW_MINUTES)
+    return SurveyMyResponseOut(
+        survey_id=survey_id,
+        submitted_at=response.submitted_at,
+        can_edit=datetime.now(timezone.utc) <= can_edit_until,
+        can_edit_until=can_edit_until,
+        answers=response.answers,
+        anonymous=response.is_anonymous,
+    )
 
 
 @router.post("/{survey_id}/submit", response_model=MessageResponse)
@@ -102,22 +159,21 @@ def submit_survey(
     if survey.closes_at and survey.closes_at < now:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Survey is closed")
 
-    existing = db.query(SurveyResponse).filter(SurveyResponse.survey_id == survey_id, SurveyResponse.student_id == current_user.id).first()
-    if existing:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You have already submitted this survey")
-
     if payload.anonymous and not survey.allow_anonymous_responses:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This survey does not allow anonymous responses")
 
-    question_map = {q.id: q for q in survey.questions}
-    answers_out: list[dict] = []
-    for answer in payload.answers:
-        question = question_map.get(answer.question_id)
-        if not question:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid question id")
-        if answer.score > question.max_score:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Score exceeds question maximum")
-        answers_out.append({"question_id": answer.question_id, "score": answer.score})
+    answers_out = _validated_answers(payload, survey)
+    existing = db.query(SurveyResponse).filter(SurveyResponse.survey_id == survey_id, SurveyResponse.student_id == current_user.id).first()
+
+    if existing:
+        can_edit_until = existing.submitted_at + timedelta(minutes=EDIT_WINDOW_MINUTES)
+        if now > can_edit_until:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Edit window elapsed. You can only edit within 1 hour.")
+        existing.answers = answers_out
+        existing.is_anonymous = payload.anonymous
+        existing.submitted_at = now
+        db.commit()
+        return MessageResponse(message="Survey response updated")
 
     db.add(
         SurveyResponse(
@@ -166,6 +222,50 @@ def survey_results(
     average_percent = round(sum(percent_scores) / len(percent_scores), 2)
     star_rating = round((average_percent / 100) * 5, 1)
     return SurveyAggregate(response_count=len(responses), average_percent=average_percent, star_rating=star_rating)
+
+
+@router.get("/{survey_id}/responses", response_model=list[SurveyResponseDetailOut])
+def survey_responses(
+    survey_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[SurveyResponseDetailOut]:
+    survey = db.query(Survey).options(joinedload(Survey.questions)).filter(Survey.id == survey_id).first()
+    if not survey:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey not found")
+    if not _can_view_survey_results(current_user, survey):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+
+    question_map = {q.id: q.prompt for q in survey.questions}
+    responses = (
+        db.query(SurveyResponse, User.full_name)
+        .join(User, User.id == SurveyResponse.student_id)
+        .filter(SurveyResponse.survey_id == survey_id)
+        .order_by(SurveyResponse.submitted_at.desc())
+        .all()
+    )
+
+    out: list[SurveyResponseDetailOut] = []
+    for response, full_name in responses:
+        answer_rows = [
+            SurveyResponseAnswerOut(
+                question_id=item.get("question_id"),
+                question_prompt=question_map.get(item.get("question_id"), "Question"),
+                score=item.get("score", 0),
+                detail=item.get("detail"),
+            )
+            for item in response.answers
+        ]
+        out.append(
+            SurveyResponseDetailOut(
+                response_id=response.id,
+                submitted_at=response.submitted_at,
+                anonymous=response.is_anonymous,
+                respondent_name=None if response.is_anonymous else full_name,
+                answers=answer_rows,
+            )
+        )
+    return out
 
 
 @router.get("/hostels/ratings", response_model=list[HostelRatingOut])

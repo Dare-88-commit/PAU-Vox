@@ -47,15 +47,19 @@ export function StaffInbox({ onNavigate }: StaffInboxProps) {
         feedbacks = getAllFeedbacks()
         break
       case 'academic_staff':
+      case 'course_coordinator':
+      case 'dean':
       case 'department_head':
         if (user.department) {
           feedbacks = getDepartmentFeedbacks(user.department, 'academic')
         }
         break
       case 'student_affairs':
+      case 'head_student_affairs':
         feedbacks = getAllFeedbacks().filter(f => f.type === 'non_academic')
         break
       case 'facilities_management':
+      case 'facilities_account':
         feedbacks = getAllFeedbacks().filter(
           f => f.type === 'non_academic' && ['Hostel/Accommodation', 'Air Conditioning', 'Electricity/Power', 'Water Supply', 'Sanitation/Cleanliness'].includes(f.category)
         )

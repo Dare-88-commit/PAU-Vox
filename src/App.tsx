@@ -52,6 +52,8 @@ type Page =
 function AppContent() {
   const { user, token, isAuthenticated } = useAuth()
   const [currentPage, setCurrentPage] = useState<Page>('home')
+  const canViewAnalytics = !!user && ['university_management', 'department_head', 'course_coordinator', 'dean'].includes(user.role)
+  const canUseStaffInbox = !!user && ['academic_staff', 'course_coordinator', 'department_head', 'dean', 'student_affairs', 'head_student_affairs', 'facilities_management', 'facilities_account'].includes(user.role)
 
   useEffect(() => {
     if (isAuthenticated && user?.verified && currentPage === 'home') {
@@ -67,11 +69,11 @@ function AppContent() {
 
   useEffect(() => {
     if (!user) return
-    if (currentPage === 'analytics' && !['university_management', 'department_head'].includes(user.role)) {
+    if (currentPage === 'analytics' && !canViewAnalytics) {
       toast.error('Access denied. Analytics is restricted.')
       setCurrentPage('dashboard')
     }
-    if (currentPage === 'staff-inbox' && user.role === 'student') {
+    if (currentPage === 'staff-inbox' && !canUseStaffInbox) {
       toast.error('Access denied.')
       setCurrentPage('dashboard')
     }
@@ -79,10 +81,10 @@ function AppContent() {
       toast.error('Access denied. Admin Users is restricted to ICT Admin accounts.')
       setCurrentPage('dashboard')
     }
-  }, [currentPage, user])
+  }, [currentPage, user, canViewAnalytics, canUseStaffInbox])
 
   useEffect(() => {
-    if (!token || !user || !['department_head', 'student_affairs', 'ict_admin'].includes(user.role)) return
+    if (!token || !user || !['department_head', 'student_affairs', 'head_student_affairs', 'ict_admin', 'course_coordinator', 'dean', 'facilities_management'].includes(user.role)) return
     const run = async () => {
       try {
         await apiRequest<{ message: string }>('/feedback/overdue/check', { method: 'POST', token })
@@ -98,8 +100,13 @@ function AppContent() {
   }, [token, user?.role])
 
   const handleNavigate = (page: Page) => {
-    if (page === 'analytics' && user && !['university_management', 'department_head'].includes(user.role)) {
-      toast.error('Access denied. Analytics is only available to management and department heads.')
+    if (page === 'analytics' && user && !canViewAnalytics) {
+      toast.error('Access denied. Analytics is restricted.')
+      setCurrentPage('dashboard')
+      return
+    }
+    if (page === 'staff-inbox' && user && !canUseStaffInbox) {
+      toast.error('Access denied.')
       setCurrentPage('dashboard')
       return
     }
@@ -125,10 +132,18 @@ function AppContent() {
         return <FacilitiesManagementDashboard onNavigate={handleNavigate} />
       case 'department_head':
         return <AcademicStaffDashboard onNavigate={handleNavigate} />
+      case 'course_coordinator':
+        return <AcademicStaffDashboard onNavigate={handleNavigate} />
+      case 'dean':
+        return <AcademicStaffDashboard onNavigate={handleNavigate} />
       case 'university_management':
         return <AnalyticsPage onNavigate={handleNavigate} />
       case 'ict_admin':
         return <UniversityManagementDashboard onNavigate={handleNavigate} />
+      case 'head_student_affairs':
+        return <StudentAffairsDashboard onNavigate={handleNavigate} />
+      case 'facilities_account':
+        return <FacilitiesManagementDashboard onNavigate={handleNavigate} />
       default:
         return <StudentDashboard onNavigate={handleNavigate} />
     }
@@ -155,10 +170,10 @@ function AppContent() {
         case 'my-feedback':
           return renderDashboard()
         case 'staff-inbox':
-          if (user?.role === 'student') return renderDashboard()
+          if (!canUseStaffInbox) return renderDashboard()
           return <StaffInbox onNavigate={handleNavigate} />
         case 'analytics':
-          if (!user || !['university_management', 'department_head'].includes(user.role)) return renderDashboard()
+          if (!user || !canViewAnalytics) return renderDashboard()
           return <AnalyticsPage onNavigate={handleNavigate} />
         case 'admin-users':
           if (!user || user.role !== 'ict_admin') return renderDashboard()
@@ -187,6 +202,7 @@ function AppContent() {
         {showNavbar && <Navbar currentPage={currentPage} onNavigate={handleNavigate} />}
         {pageContent}
         {showNavbar && <MobileBottomNav currentPage={currentPage} onNavigate={handleNavigate} />}
+        {showNavbar && isAuthenticated && <div className="h-20 xl:hidden" aria-hidden="true" />}
       </>
     )
   }

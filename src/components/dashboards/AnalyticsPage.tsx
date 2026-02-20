@@ -45,17 +45,19 @@ export function AnalyticsPage({ onNavigate }: AnalyticsPageProps) {
     return 30
   }, [timeRange])
 
+  const isDepartmentScoped = user?.role === 'department_head' || user?.role === 'course_coordinator'
+
   useEffect(() => {
     const load = async () => {
       if (!token) return
       try {
-        const deptQuery = user?.role === 'department_head' && user.department
+        const deptQuery = isDepartmentScoped && user?.department
           ? `?department=${encodeURIComponent(user.department)}`
           : ''
         const a = await apiRequest<AnalyticsPayload>(`/analytics${deptQuery}`, { token })
         setAnalytics(a)
 
-        const trendDept = user?.role === 'department_head' && user.department
+        const trendDept = isDepartmentScoped && user?.department
           ? `&department=${encodeURIComponent(user.department)}`
           : ''
         const t = await apiRequest<{items: Array<{date: string; submitted: number; resolved: number; avg_resolution_hours: number}>}>(
@@ -68,12 +70,12 @@ export function AnalyticsPage({ onNavigate }: AnalyticsPageProps) {
       }
     }
     void load()
-  }, [token, user?.role, user?.department, trendDays])
+  }, [token, user?.role, user?.department, trendDays, isDepartmentScoped])
 
   const handleExport = async () => {
     if (!token) return
     try {
-      const dept = user?.role === 'department_head' && user.department
+      const dept = isDepartmentScoped && user?.department
         ? `&department=${encodeURIComponent(user.department)}`
         : ''
       const response = await fetch(`${API_BASE_URL}/analytics/export?format=${exportFormat}${dept}`, {

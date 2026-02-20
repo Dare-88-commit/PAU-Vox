@@ -16,3 +16,17 @@ class NotificationOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class NotificationPreferencesOut(BaseModel):
+    email_notifications_enabled: bool
+    push_notifications_enabled: bool
+    high_priority_alerts_enabled: bool
+    weekly_digest_enabled: bool
+
+
+class NotificationPreferencesUpdate(BaseModel):
+    email_notifications_enabled: bool
+    push_notifications_enabled: bool
+    high_priority_alerts_enabled: bool
+    weekly_digest_enabled: bool

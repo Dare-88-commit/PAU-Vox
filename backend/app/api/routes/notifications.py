@@ -6,7 +6,7 @@ from app.db.session import get_db
 from app.models.notification import Notification
 from app.models.user import User
 from app.schemas.common import MessageResponse
-from app.schemas.notification import NotificationOut
+from app.schemas.notification import NotificationOut, NotificationPreferencesOut, NotificationPreferencesUpdate
 
 router = APIRouter()
 
@@ -53,3 +53,35 @@ def mark_all_notifications_read(
         row.read = True
     db.commit()
     return MessageResponse(message="All notifications marked as read")
+
+
+@router.get("/preferences", response_model=NotificationPreferencesOut)
+def get_notification_preferences(
+    current_user: User = Depends(get_current_user),
+) -> NotificationPreferencesOut:
+    return NotificationPreferencesOut(
+        email_notifications_enabled=current_user.email_notifications_enabled,
+        push_notifications_enabled=current_user.push_notifications_enabled,
+        high_priority_alerts_enabled=current_user.high_priority_alerts_enabled,
+        weekly_digest_enabled=current_user.weekly_digest_enabled,
+    )
+
+
+@router.patch("/preferences", response_model=NotificationPreferencesOut)
+def update_notification_preferences(
+    payload: NotificationPreferencesUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> NotificationPreferencesOut:
+    current_user.email_notifications_enabled = payload.email_notifications_enabled
+    current_user.push_notifications_enabled = payload.push_notifications_enabled
+    current_user.high_priority_alerts_enabled = payload.high_priority_alerts_enabled
+    current_user.weekly_digest_enabled = payload.weekly_digest_enabled
+    db.commit()
+    db.refresh(current_user)
+    return NotificationPreferencesOut(
+        email_notifications_enabled=current_user.email_notifications_enabled,
+        push_notifications_enabled=current_user.push_notifications_enabled,
+        high_priority_alerts_enabled=current_user.high_priority_alerts_enabled,
+        weekly_digest_enabled=current_user.weekly_digest_enabled,
+    )

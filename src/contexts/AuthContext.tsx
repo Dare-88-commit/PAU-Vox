@@ -4,8 +4,12 @@ import { apiRequest } from "../lib/api";
 export type UserRole =
   | "student"
   | "academic_staff"
+  | "course_coordinator"
+  | "dean"
   | "student_affairs"
+  | "head_student_affairs"
   | "facilities_management"
+  | "facilities_account"
   | "department_head"
   | "university_management"
   | "ict_admin";

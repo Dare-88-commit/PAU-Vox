@@ -1,4 +1,5 @@
 from app.models.attachment import Attachment
+from app.models.account_deletion_request import AccountDeletionRequest
 from app.models.base import Base
 from app.models.email_verification_code import EmailVerificationCode
 from app.models.feedback import Feedback
@@ -10,6 +11,7 @@ from app.models.user import User
 
 __all__ = [
     "Base",
+    "AccountDeletionRequest",
     "Attachment",
     "User",
     "Feedback",

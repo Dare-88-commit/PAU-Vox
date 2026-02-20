@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user
+from app.core.catalog import is_valid_department, normalize_department
 from app.core.config import settings
 from app.core.policies import can_add_internal_note, can_view_feedback
 from app.db.session import get_db
@@ -34,14 +35,7 @@ from app.services.similarity import detect_similarity_group
 
 router = APIRouter()
 
-ALLOWED_TRANSITIONS: dict[FeedbackStatus, set[FeedbackStatus]] = {
-    FeedbackStatus.pending: {FeedbackStatus.in_review, FeedbackStatus.assigned, FeedbackStatus.rejected},
-    FeedbackStatus.in_review: {FeedbackStatus.assigned, FeedbackStatus.working, FeedbackStatus.resolved, FeedbackStatus.rejected},
-    FeedbackStatus.assigned: {FeedbackStatus.in_review, FeedbackStatus.working, FeedbackStatus.resolved},
-    FeedbackStatus.working: {FeedbackStatus.in_review, FeedbackStatus.resolved},
-    FeedbackStatus.resolved: set(),
-    FeedbackStatus.rejected: set(),
-}
+EDIT_WINDOW_SECONDS = 60 * 60
 
 
 def _serialize_feedback(feedback: Feedback, viewer_role: UserRole) -> FeedbackOut:
@@ -52,9 +46,13 @@ def _serialize_feedback(feedback: Feedback, viewer_role: UserRole) -> FeedbackOu
 
     include_internal = viewer_role in {
         UserRole.academic_staff,
+        UserRole.course_coordinator,
+        UserRole.dean,
         UserRole.department_head,
         UserRole.student_affairs,
+        UserRole.head_student_affairs,
         UserRole.facilities_management,
+        UserRole.facilities_account,
     }
 
     return FeedbackOut(
@@ -89,7 +87,19 @@ def _record_status_change(db: Session, feedback: Feedback, status_value: Feedbac
     db.add(StatusHistory(feedback_id=feedback.id, status=status_value, updated_by_id=by_user_id, note=note))
 
 
-def _notify(db: Session, user_id: str, title: str, message: str, feedback_id: str | None = None, level=NotificationType.info):
+def _notify(
+    db: Session,
+    user_id: str,
+    title: str,
+    message: str,
+    feedback_id: str | None = None,
+    level=NotificationType.info,
+):
+    target_user = db.query(User).filter(User.id == user_id).first()
+    if not target_user or not target_user.push_notifications_enabled:
+        return
+    if level in {NotificationType.warning, NotificationType.error} and not target_user.high_priority_alerts_enabled:
+        return
     db.add(
         Notification(
             user_id=user_id,
@@ -103,13 +113,11 @@ def _notify(db: Session, user_id: str, title: str, message: str, feedback_id: st
 
 def _can_modify_status(current_user: User, feedback: Feedback) -> bool:
     role = current_user.role
-    if role == UserRole.academic_staff:
+    if role in {UserRole.academic_staff, UserRole.department_head, UserRole.course_coordinator, UserRole.dean}:
         return feedback.type == FeedbackType.academic and feedback.department == current_user.department
-    if role == UserRole.department_head:
-        return feedback.type == FeedbackType.academic and feedback.department == current_user.department
-    if role == UserRole.student_affairs:
+    if role in {UserRole.student_affairs, UserRole.head_student_affairs}:
         return feedback.type == FeedbackType.non_academic
-    if role == UserRole.facilities_management:
+    if role in {UserRole.facilities_management, UserRole.facilities_account}:
         return feedback.type == FeedbackType.non_academic
     return False
 
@@ -122,8 +130,13 @@ def create_feedback(
 ) -> FeedbackOut:
     if current_user.role != UserRole.student:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only students can submit feedback")
-    if payload.type == FeedbackType.academic and not payload.department:
+    department = normalize_department(payload.department)
+    if payload.type == FeedbackType.academic and not department:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Department is required for academic feedback")
+    if payload.type == FeedbackType.academic and not is_valid_department(department):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid department")
+    if payload.type == FeedbackType.non_academic:
+        department = None
     if contains_profanity(payload.subject) or contains_profanity(payload.description):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -155,7 +168,7 @@ def create_feedback(
         subject=payload.subject,
         description=payload.description,
         is_anonymous=payload.is_anonymous,
-        department=payload.department,
+        department=department,
         student_id=current_user.id,
         priority=priority,
         similarity_group=similarity_group,
@@ -219,13 +232,11 @@ def list_feedback(
 
     if current_user.role == UserRole.student:
         query = query.filter(Feedback.student_id == current_user.id)
-    elif current_user.role == UserRole.academic_staff:
+    elif current_user.role in {UserRole.academic_staff, UserRole.department_head, UserRole.course_coordinator, UserRole.dean}:
         query = query.filter(Feedback.type == FeedbackType.academic, Feedback.department == current_user.department)
-    elif current_user.role == UserRole.department_head:
-        query = query.filter(Feedback.type == FeedbackType.academic, Feedback.department == current_user.department)
-    elif current_user.role == UserRole.student_affairs:
+    elif current_user.role in {UserRole.student_affairs, UserRole.head_student_affairs}:
         query = query.filter(Feedback.type == FeedbackType.non_academic)
-    elif current_user.role == UserRole.facilities_management:
+    elif current_user.role in {UserRole.facilities_management, UserRole.facilities_account}:
         query = query.filter(Feedback.type == FeedbackType.non_academic)
 
     items = query.order_by(Feedback.created_at.desc()).all()
@@ -263,13 +274,24 @@ def update_feedback_by_student(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found")
     if current_user.role != UserRole.student or feedback.student_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the submitting student can edit this feedback")
-    if feedback.status != FeedbackStatus.pending:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Feedback cannot be edited after review begins")
+
+    elapsed = datetime.now(timezone.utc) - feedback.created_at
+    if elapsed.total_seconds() > EDIT_WINDOW_SECONDS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Feedback can only be edited within 1 hour of submission")
 
     for field in ("category", "subject", "description", "is_anonymous", "department"):
         value = getattr(payload, field)
         if value is not None:
             setattr(feedback, field, value)
+
+    feedback.department = normalize_department(feedback.department)
+    if feedback.type == FeedbackType.academic:
+        if not feedback.department:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Department is required for academic feedback")
+        if not is_valid_department(feedback.department):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid department")
+    else:
+        feedback.department = None
 
     if contains_profanity(feedback.subject) or contains_profanity(feedback.description):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Updated text contains blocked language")
@@ -306,17 +328,9 @@ def update_feedback_status(
     if not _can_modify_status(current_user, feedback):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
 
-    if current_user.role == UserRole.facilities_management and payload.status not in {FeedbackStatus.working, FeedbackStatus.resolved}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Facilities can only set working or resolved status")
-
     if payload.status != feedback.status:
-        allowed = ALLOWED_TRANSITIONS.get(feedback.status, set())
-        if payload.status not in allowed:
-            # Heads can reopen resolved/rejected issues.
-            if current_user.role not in {UserRole.department_head, UserRole.student_affairs} or payload.status != FeedbackStatus.in_review:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid status transition")
+        _record_status_change(db, feedback, payload.status, current_user.id, payload.note)
 
-    _record_status_change(db, feedback, payload.status, current_user.id, payload.note)
     if payload.resolution_summary:
         feedback.resolution_summary = payload.resolution_summary
 
@@ -352,31 +366,46 @@ def assign_feedback(
     if feedback.status in {FeedbackStatus.resolved, FeedbackStatus.rejected}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot assign a closed issue")
 
-    if current_user.role == UserRole.student_affairs:
+    if current_user.role == UserRole.head_student_affairs:
+        if feedback.type != FeedbackType.non_academic or assignee.role != UserRole.student_affairs:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assignment target")
+    elif current_user.role == UserRole.student_affairs:
         if feedback.type != FeedbackType.non_academic or assignee.role != UserRole.facilities_management:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assignment target")
-    elif current_user.role == UserRole.department_head:
+    elif current_user.role == UserRole.facilities_management:
+        if feedback.type != FeedbackType.non_academic or assignee.role != UserRole.facilities_account:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assignment target")
+    elif current_user.role == UserRole.dean:
         if (
             feedback.type != FeedbackType.academic
             or feedback.department != current_user.department
-            or assignee.role != UserRole.academic_staff
+            or assignee.role != UserRole.department_head
+            or assignee.department != current_user.department
+        ):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid relegation target")
+    elif current_user.role in {UserRole.department_head, UserRole.course_coordinator}:
+        if (
+            feedback.type != FeedbackType.academic
+            or feedback.department != current_user.department
+            or assignee.role not in {UserRole.academic_staff, UserRole.course_coordinator}
             or assignee.department != current_user.department
         ):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assignment target")
     else:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only Student Affairs or Department Heads can assign")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions for assignment")
 
     feedback.assigned_to_id = assignee.id
     feedback.assigned_by_id = current_user.id
     feedback.assigned_at = datetime.now(timezone.utc)
     feedback.due_at = payload.due_at
     feedback.overdue_alert_sent = False
-    _record_status_change(db, feedback, FeedbackStatus.assigned, current_user.id, payload.note or "Assigned")
+    note_label = "Relegated" if current_user.role == UserRole.dean else "Assigned"
+    _record_status_change(db, feedback, FeedbackStatus.assigned, current_user.id, payload.note or note_label)
     _notify(
         db,
         assignee.id,
-        "New assignment",
-        f"You have been assigned feedback '{feedback.subject}'.",
+        "New assignment" if current_user.role != UserRole.dean else "New relegated task",
+        f"You have been {'relegated' if current_user.role == UserRole.dean else 'assigned'} feedback '{feedback.subject}'.",
         feedback.id,
         NotificationType.warning,
     )
@@ -384,8 +413,8 @@ def assign_feedback(
         _notify(
             db,
             current_user.id,
-            "Assignment confirmed",
-            f"You assigned '{feedback.subject}' with due date {payload.due_at.isoformat() if payload.due_at else 'none'}.",
+            "Assignment confirmed" if current_user.role != UserRole.dean else "Relegation confirmed",
+            f"You {'relegated' if current_user.role == UserRole.dean else 'assigned'} '{feedback.subject}' with due date {payload.due_at.isoformat() if payload.due_at else 'none'}.",
             feedback.id,
             NotificationType.info,
         )
@@ -428,7 +457,7 @@ def escalate_feedback(
     feedback = db.query(Feedback).options(joinedload(Feedback.student)).filter(Feedback.id == feedback_id).first()
     if not feedback:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found")
-    if current_user.role not in {UserRole.academic_staff, UserRole.student_affairs}:
+    if current_user.role not in {UserRole.academic_staff, UserRole.student_affairs, UserRole.course_coordinator, UserRole.facilities_management, UserRole.facilities_account}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only operational staff can escalate")
 
     if feedback.type == FeedbackType.academic:
@@ -453,7 +482,7 @@ def check_overdue_assignments(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> MessageResponse:
-    if current_user.role not in {UserRole.ict_admin, UserRole.department_head, UserRole.student_affairs}:
+    if current_user.role not in {UserRole.ict_admin, UserRole.department_head, UserRole.student_affairs, UserRole.course_coordinator, UserRole.head_student_affairs, UserRole.dean, UserRole.facilities_management}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
 
     now = datetime.now(timezone.utc)
@@ -479,7 +508,7 @@ def check_overdue_assignments(
                 NotificationType.warning,
             )
             assignee = db.query(User).filter(User.id == item.assigned_to_id).first()
-            if assignee:
+            if assignee and assignee.email_notifications_enabled:
                 send_plain_email(assignee.email, "PAU Vox Overdue Task", f"Task '{item.subject}' is overdue.")
 
         if item.assigned_by_id:
@@ -516,8 +545,8 @@ async def upload_attachment(
 
     can_upload = False
     if current_user.role == UserRole.student:
-        can_upload = feedback.student_id == current_user.id and feedback.status == FeedbackStatus.pending
-    elif current_user.role in {UserRole.facilities_management, UserRole.student_affairs, UserRole.department_head, UserRole.academic_staff}:
+        can_upload = feedback.student_id == current_user.id and (datetime.now(timezone.utc) - feedback.created_at).total_seconds() <= EDIT_WINDOW_SECONDS
+    elif current_user.role in {UserRole.facilities_management, UserRole.facilities_account, UserRole.student_affairs, UserRole.head_student_affairs, UserRole.department_head, UserRole.dean, UserRole.academic_staff, UserRole.course_coordinator}:
         can_upload = can_view_feedback(current_user, feedback)
     if not can_upload:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")

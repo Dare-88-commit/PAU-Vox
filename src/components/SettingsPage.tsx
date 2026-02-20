@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
@@ -24,17 +24,75 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
   const [highPriorityAlerts, setHighPriorityAlerts] = useState(true)
   const [weeklyDigest, setWeeklyDigest] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
+  const [prefsLoading, setPrefsLoading] = useState(true)
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmNewPassword, setConfirmNewPassword] = useState('')
   const [passwordLoading, setPasswordLoading] = useState(false)
+  const [deletionRequestStatus, setDeletionRequestStatus] = useState<'none' | 'pending' | 'approved' | 'rejected'>('none')
+  const [deletionRequestLoading, setDeletionRequestLoading] = useState(false)
+
+  useEffect(() => {
+    const loadDeletionStatus = async () => {
+      if (!token) return
+      try {
+        const row = await apiRequest<{ status: 'pending' | 'approved' | 'rejected' } | null>('/auth/account-deletion-request', { token })
+        setDeletionRequestStatus(row?.status || 'none')
+      } catch {
+        setDeletionRequestStatus('none')
+      }
+    }
+    void loadDeletionStatus()
+  }, [token])
+
+  useEffect(() => {
+    const loadPreferences = async () => {
+      if (!token) return
+      try {
+        setPrefsLoading(true)
+        const prefs = await apiRequest<{
+          email_notifications_enabled: boolean
+          push_notifications_enabled: boolean
+          high_priority_alerts_enabled: boolean
+          weekly_digest_enabled: boolean
+        }>('/notifications/preferences', { token })
+        setEmailNotifications(prefs.email_notifications_enabled)
+        setPushNotifications(prefs.push_notifications_enabled)
+        setHighPriorityAlerts(prefs.high_priority_alerts_enabled)
+        setWeeklyDigest(prefs.weekly_digest_enabled)
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to load notification preferences')
+      } finally {
+        setPrefsLoading(false)
+      }
+    }
+    void loadPreferences()
+  }, [token])
 
   const handleSavePreferences = async () => {
-    setSaveLoading(true)
-    await new Promise(resolve => setTimeout(resolve, 500))
-    setSaveLoading(false)
-    toast.success('Preferences saved successfully')
+    if (!token) {
+      toast.error('You must be signed in')
+      return
+    }
+    try {
+      setSaveLoading(true)
+      await apiRequest('/notifications/preferences', {
+        method: 'PATCH',
+        token,
+        body: {
+          email_notifications_enabled: emailNotifications,
+          push_notifications_enabled: pushNotifications,
+          high_priority_alerts_enabled: highPriorityAlerts,
+          weekly_digest_enabled: weeklyDigest,
+        },
+      })
+      toast.success('Preferences saved successfully')
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save preferences')
+    } finally {
+      setSaveLoading(false)
+    }
   }
 
   const handleChangePassword = async () => {
@@ -73,32 +131,59 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
   }
 
   const handleExportData = () => {
-    const userData = {
-      user: {
-        id: user?.id,
-        name: user?.name,
-        email: user?.email,
-        role: user?.role,
-      },
-      exportedAt: new Date().toISOString(),
+    if (!token) {
+      toast.error('You must be signed in')
+      return
     }
-
-    const blob = new Blob([JSON.stringify(userData, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `pau-vox-data-${Date.now()}.json`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-    toast.success('Data exported successfully')
+    const run = async () => {
+      try {
+        const baseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, "") || "http://localhost:8000/api/v1"
+        const response = await fetch(`${baseUrl}/auth/export-data`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!response.ok) throw new Error('Export failed')
+        const blob = await response.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `pau-vox-data-${Date.now()}.json`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+        toast.success('Data exported successfully')
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to export data')
+      }
+    }
+    void run()
   }
 
   const handleDeleteAccount = () => {
-    if (confirm('Are you sure you want to delete your account? This action cannot be undone.')) {
-      toast.error('Account deletion requested. Please contact support to complete this action.')
+    if (!token) {
+      toast.error('You must be signed in')
+      return
     }
+    if (!confirm('Submit account deletion request for ICT Admin approval?')) return
+
+    const reason = window.prompt('Optional: provide a reason for deletion request') || ''
+    const run = async () => {
+      try {
+        setDeletionRequestLoading(true)
+        await apiRequest('/auth/request-account-deletion', {
+          method: 'POST',
+          token,
+          body: { reason: reason.trim() || null },
+        })
+        setDeletionRequestStatus('pending')
+        toast.success('Deletion request submitted for ICT Admin approval')
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to submit deletion request')
+      } finally {
+        setDeletionRequestLoading(false)
+      }
+    }
+    void run()
   }
 
   return (
@@ -212,7 +297,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                   <Label htmlFor="email-notifications">Email Notifications</Label>
                   <p className="text-sm text-muted-foreground">Receive email updates about your feedback</p>
                 </div>
-                <Switch id="email-notifications" checked={emailNotifications} onCheckedChange={setEmailNotifications} />
+                <Switch id="email-notifications" checked={emailNotifications} onCheckedChange={setEmailNotifications} disabled={prefsLoading || saveLoading} />
               </div>
 
               <Separator />
@@ -222,7 +307,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                   <Label htmlFor="push-notifications">Push Notifications</Label>
                   <p className="text-sm text-muted-foreground">Get instant notifications on status changes</p>
                 </div>
-                <Switch id="push-notifications" checked={pushNotifications} onCheckedChange={setPushNotifications} />
+                <Switch id="push-notifications" checked={pushNotifications} onCheckedChange={setPushNotifications} disabled={prefsLoading || saveLoading} />
               </div>
 
               <Separator />
@@ -238,7 +323,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                   id="high-priority"
                   checked={highPriorityAlerts}
                   onCheckedChange={setHighPriorityAlerts}
-                  disabled={user?.role === 'student'}
+                  disabled={prefsLoading || saveLoading || user?.role === 'student'}
                 />
               </div>
 
@@ -249,11 +334,11 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                   <Label htmlFor="weekly-digest">Weekly Digest</Label>
                   <p className="text-sm text-muted-foreground">Receive a summary of campus feedback every week</p>
                 </div>
-                <Switch id="weekly-digest" checked={weeklyDigest} onCheckedChange={setWeeklyDigest} />
+                <Switch id="weekly-digest" checked={weeklyDigest} onCheckedChange={setWeeklyDigest} disabled={prefsLoading || saveLoading} />
               </div>
 
               <div className="pt-4">
-                <Button onClick={handleSavePreferences} disabled={saveLoading} className="bg-[#001F54] hover:bg-blue-900">
+                <Button onClick={handleSavePreferences} disabled={prefsLoading || saveLoading} className="bg-[#001F54] hover:bg-blue-900">
                   {saveLoading ? (
                     <>
                       <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></div>
@@ -293,11 +378,13 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
               <div className="flex items-center justify-between p-4 border border-red-200 dark:border-red-800 rounded-lg bg-red-50 dark:bg-red-900/20">
                 <div>
                   <h4 className="font-medium text-red-900 dark:text-red-100">Delete Account</h4>
-                  <p className="text-sm text-red-700 dark:text-red-300">Permanently delete your account and all associated data</p>
+                  <p className="text-sm text-red-700 dark:text-red-300">Request deletion. ICT Admin must approve before account is deleted.</p>
+                  {deletionRequestStatus === 'pending' && <p className="text-xs mt-2 text-amber-700 dark:text-amber-300">Deletion request is pending review.</p>}
+                  {deletionRequestStatus === 'rejected' && <p className="text-xs mt-2 text-red-700 dark:text-red-300">Your last deletion request was rejected.</p>}
                 </div>
-                <Button variant="destructive" onClick={handleDeleteAccount}>
+                <Button variant="destructive" onClick={handleDeleteAccount} disabled={deletionRequestLoading || deletionRequestStatus === 'pending'}>
                   <Trash2 className="w-4 h-4 mr-2" />
-                  Delete
+                  {deletionRequestLoading ? 'Submitting...' : 'Request Delete'}
                 </Button>
               </div>
 

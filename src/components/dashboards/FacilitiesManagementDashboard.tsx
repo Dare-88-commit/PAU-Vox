@@ -4,6 +4,7 @@ import { useFeedback } from '../../contexts/FeedbackContext'
 import { Layout } from '../Layout'
 import { FeedbackCard } from '../feedback/FeedbackCard'
 import { FeedbackDetailModal } from '../feedback/FeedbackDetailModal'
+import { AssignmentModal } from '../feedback/AssignmentModal'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs'
 import { Wrench, Clock, CheckCircle2, AlertCircle } from 'lucide-react'
@@ -17,6 +18,7 @@ export function FacilitiesManagementDashboard({ onNavigate }: FacilitiesManageme
   const { user } = useAuth()
   const { getAssignedFeedbacks } = useFeedback()
   const [selectedFeedback, setSelectedFeedback] = useState<Feedback | null>(null)
+  const [assigningFeedback, setAssigningFeedback] = useState<Feedback | null>(null)
 
   // Get feedbacks assigned to facilities management
   const assignedTasks = getAssignedFeedbacks(user?.id || '')
@@ -25,6 +27,12 @@ export function FacilitiesManagementDashboard({ onNavigate }: FacilitiesManageme
   const workingCount = assignedTasks.filter(f => f.status === 'working').length
   const completedCount = assignedTasks.filter(f => f.status === 'resolved').length
   const urgentCount = assignedTasks.filter(f => f.priority === 'urgent' || f.priority === 'high').length
+
+  const canAssign = user?.role === 'facilities_management'
+  const handleAssignClick = (e: React.MouseEvent, feedback: Feedback) => {
+    e.stopPropagation()
+    setAssigningFeedback(feedback)
+  }
 
   return (
     <Layout title={`Facilities Management - ${user?.name}`}>
@@ -106,6 +114,7 @@ export function FacilitiesManagementDashboard({ onNavigate }: FacilitiesManageme
                       feedback={feedback}
                       onClick={() => setSelectedFeedback(feedback)}
                       showStudent={true}
+                      onAssignClick={canAssign ? handleAssignClick : undefined}
                     />
                   ))}
                 </TabsContent>
@@ -119,6 +128,7 @@ export function FacilitiesManagementDashboard({ onNavigate }: FacilitiesManageme
                         feedback={feedback}
                         onClick={() => setSelectedFeedback(feedback)}
                         showStudent={true}
+                        onAssignClick={canAssign ? handleAssignClick : undefined}
                       />
                     ))}
                 </TabsContent>
@@ -132,6 +142,7 @@ export function FacilitiesManagementDashboard({ onNavigate }: FacilitiesManageme
                         feedback={feedback}
                         onClick={() => setSelectedFeedback(feedback)}
                         showStudent={true}
+                        onAssignClick={canAssign ? handleAssignClick : undefined}
                       />
                     ))}
                 </TabsContent>
@@ -145,6 +156,7 @@ export function FacilitiesManagementDashboard({ onNavigate }: FacilitiesManageme
                         feedback={feedback}
                         onClick={() => setSelectedFeedback(feedback)}
                         showStudent={true}
+                        onAssignClick={canAssign ? handleAssignClick : undefined}
                       />
                     ))}
                 </TabsContent>
@@ -158,6 +170,7 @@ export function FacilitiesManagementDashboard({ onNavigate }: FacilitiesManageme
                         feedback={feedback}
                         onClick={() => setSelectedFeedback(feedback)}
                         showStudent={true}
+                        onAssignClick={canAssign ? handleAssignClick : undefined}
                       />
                     ))}
                 </TabsContent>
@@ -171,6 +184,11 @@ export function FacilitiesManagementDashboard({ onNavigate }: FacilitiesManageme
         feedback={selectedFeedback}
         open={!!selectedFeedback}
         onClose={() => setSelectedFeedback(null)}
+      />
+      <AssignmentModal
+        feedback={assigningFeedback}
+        open={!!assigningFeedback}
+        onClose={() => setAssigningFeedback(null)}
       />
     </Layout>
   )

@@ -36,14 +36,81 @@ def _apply_runtime_patches() -> None:
         return
 
     statements = [
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'userrole') THEN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_enum
+                    WHERE enumlabel = 'course_coordinator'
+                      AND enumtypid = 'userrole'::regtype
+                ) THEN
+                    ALTER TYPE userrole ADD VALUE 'course_coordinator';
+                END IF;
+            END IF;
+        END$$
+        """,
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'userrole') THEN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_enum
+                    WHERE enumlabel = 'dean'
+                      AND enumtypid = 'userrole'::regtype
+                ) THEN
+                    ALTER TYPE userrole ADD VALUE 'dean';
+                END IF;
+            END IF;
+        END$$
+        """,
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'userrole') THEN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_enum
+                    WHERE enumlabel = 'head_student_affairs'
+                      AND enumtypid = 'userrole'::regtype
+                ) THEN
+                    ALTER TYPE userrole ADD VALUE 'head_student_affairs';
+                END IF;
+            END IF;
+        END$$
+        """,
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'userrole') THEN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_enum
+                    WHERE enumlabel = 'facilities_account'
+                      AND enumtypid = 'userrole'::regtype
+                ) THEN
+                    ALTER TYPE userrole ADD VALUE 'facilities_account';
+                END IF;
+            END IF;
+        END$$
+        """,
         "ALTER TABLE feedback ADD COLUMN IF NOT EXISTS assigned_by_id VARCHAR(36)",
         "ALTER TABLE feedback ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ",
         "ALTER TABLE feedback ADD COLUMN IF NOT EXISTS due_at TIMESTAMPTZ",
         "ALTER TABLE feedback ADD COLUMN IF NOT EXISTS overdue_alert_sent BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE surveys ADD COLUMN IF NOT EXISTS allow_anonymous_responses BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE survey_questions ADD COLUMN IF NOT EXISTS requires_detail BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE survey_questions ADD COLUMN IF NOT EXISTS detail_label VARCHAR(160)",
         "ALTER TABLE survey_responses ADD COLUMN IF NOT EXISTS is_anonymous BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_major_admin BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS role_assignment_locked BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS push_notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS high_priority_alerts_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS weekly_digest_enabled BOOLEAN NOT NULL DEFAULT FALSE",
     ]
 
     with engine.begin() as conn:

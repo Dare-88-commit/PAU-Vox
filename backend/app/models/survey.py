@@ -33,6 +33,8 @@ class SurveyQuestion(Base):
     survey_id: Mapped[str] = mapped_column(String(36), ForeignKey("surveys.id"), nullable=False, index=True)
     prompt: Mapped[str] = mapped_column(String(300), nullable=False)
     max_score: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    requires_detail: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    detail_label: Mapped[str | None] = mapped_column(String(160), nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     survey = relationship("Survey", back_populates="questions")

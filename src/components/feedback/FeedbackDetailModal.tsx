@@ -17,6 +17,7 @@ import { Label } from '../ui/label'
 import { Clock, User, FileText, MessageSquare, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { API_BASE_URL } from '../../lib/api'
+import { useEffect } from 'react'
 
 function formatDistanceToNow(date: Date, options?: { addSuffix?: boolean }): string {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000)
@@ -60,15 +61,63 @@ export function FeedbackDetailModal({ feedback, open, onClose }: FeedbackDetailM
   const [newStatus, setNewStatus] = useState<FeedbackStatus | ''>('')
   const [resolutionSummary, setResolutionSummary] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string>>({})
+  const [attachmentTypes, setAttachmentTypes] = useState<Record<string, string>>({})
   const apiOrigin = API_BASE_URL.replace(/\/api\/v1$/, '')
 
   if (!feedback) return null
 
-  const canUpdateStatus = user && ['academic_staff', 'student_affairs', 'facilities_management', 'department_head'].includes(user.role)
+  const canUpdateStatus = user && ['academic_staff', 'course_coordinator', 'dean', 'student_affairs', 'head_student_affairs', 'facilities_management', 'facilities_account', 'department_head'].includes(user.role)
   const canAddNotes = user && user.role !== 'student'
   const canViewNotes = user && user.role !== 'student'
   const isStudent = user?.role === 'student'
   const isResolvingStatus = newStatus === 'resolved'
+
+  useEffect(() => {
+    let cancelled = false
+    const objectUrls: string[] = []
+
+    const loadAttachments = async () => {
+      if (!feedback?.attachments?.length || !user) {
+        setAttachmentUrls({})
+        setAttachmentTypes({})
+        return
+      }
+
+      const token = localStorage.getItem('pau_vox_token')
+      if (!token) return
+
+      const nextUrls: Record<string, string> = {}
+      const nextTypes: Record<string, string> = {}
+
+      for (const rel of feedback.attachments) {
+        try {
+          const response = await fetch(`${apiOrigin}${rel}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          if (!response.ok) continue
+          const blob = await response.blob()
+          const url = URL.createObjectURL(blob)
+          objectUrls.push(url)
+          nextUrls[rel] = url
+          nextTypes[rel] = blob.type || ''
+        } catch {
+          // no-op
+        }
+      }
+
+      if (!cancelled) {
+        setAttachmentUrls(nextUrls)
+        setAttachmentTypes(nextTypes)
+      }
+    }
+
+    void loadAttachments()
+    return () => {
+      cancelled = true
+      for (const url of objectUrls) URL.revokeObjectURL(url)
+    }
+  }, [feedback?.id, feedback?.attachments?.length, apiOrigin, user])
 
   const handleStatusUpdate = async () => {
     if (newStatus) {
@@ -273,15 +322,28 @@ export function FeedbackDetailModal({ feedback, open, onClose }: FeedbackDetailM
                 <h4 className="font-medium">Attachments</h4>
                 <div className="space-y-2">
                   {feedback.attachments.map((url, index) => (
-                    <a
-                      key={url}
-                      href={`${apiOrigin}${url}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-sm text-[#001F54] hover:underline block"
-                    >
-                      Attachment {index + 1}
-                    </a>
+                    <div key={url} className="border rounded-md p-2 space-y-2">
+                      {attachmentTypes[url]?.startsWith('image/') && attachmentUrls[url] ? (
+                        <img
+                          src={attachmentUrls[url]}
+                          alt={`Attachment ${index + 1}`}
+                          className="max-h-64 rounded border object-contain w-full bg-black/5"
+                        />
+                      ) : (
+                        <p className="text-xs text-muted-foreground">Preview unavailable for this file type.</p>
+                      )}
+                      {attachmentUrls[url] ? (
+                        <a
+                          href={attachmentUrls[url]}
+                          download={`attachment-${index + 1}`}
+                          className="text-sm text-[#001F54] hover:underline block"
+                        >
+                          Download Attachment {index + 1}
+                        </a>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Loading attachment...</span>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>

@@ -44,8 +44,10 @@ export function StudentAffairsDashboard({ onNavigate }: StudentAffairsDashboardP
     setAssigningFeedback(feedback)
   }
 
+  const pageTitle = user?.role === 'head_student_affairs' ? `Head of Student Affairs - ${user?.name}` : `Student Affairs Dashboard - ${user?.name}`
+
   return (
-    <Layout title={`Student Affairs Dashboard - ${user?.name}`}>
+    <Layout title={pageTitle}>
       <div className="space-y-6">
         {/* Quick Stats */}
         <div className="grid gap-4 md:grid-cols-4">

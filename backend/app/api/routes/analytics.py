@@ -22,7 +22,7 @@ router = APIRouter()
 def _guard_analytics_access(current_user: User, department: str | None):
     if current_user.role == UserRole.university_management:
         return
-    if current_user.role == UserRole.department_head:
+    if current_user.role in {UserRole.department_head, UserRole.course_coordinator, UserRole.dean}:
         if department and department != current_user.department:
             raise HTTPException(status_code=403, detail="Department scope violation")
         return
@@ -31,7 +31,7 @@ def _guard_analytics_access(current_user: User, department: str | None):
 
 def _filtered_feedback(db: Session, current_user: User, department: str | None):
     query = db.query(Feedback)
-    if current_user.role == UserRole.department_head:
+    if current_user.role in {UserRole.department_head, UserRole.course_coordinator, UserRole.dean}:
         query = query.filter(Feedback.type == FeedbackType.academic, Feedback.department == current_user.department)
     elif department:
         query = query.filter(Feedback.department == department)

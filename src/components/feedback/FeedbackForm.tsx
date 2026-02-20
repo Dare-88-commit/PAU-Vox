@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useFeedback, FeedbackType, FeedbackPriority, Feedback } from '../../contexts/FeedbackContext'
 import { useAuth } from '../../contexts/AuthContext'
+import { DEPARTMENTS } from '../../lib/catalog'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
@@ -61,27 +62,13 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [viewingSimilar, setViewingSimilar] = useState<Feedback | null>(null)
 
-  const departments = [
-    'Computer Science',
-    'Mathematics',
-    'Physics',
-    'Chemistry',
-    'Biology',
-    'Economics',
-    'Accounting',
-    'Mass Communication',
-    'Law',
-    'Other'
-  ]
-
   const validateContent = (text: string): { containsProfanity: boolean; isEmergency: boolean } => {
     const containsProfanity = checkProfanity(text)
-    
-    // Emergency keywords detection
+
     const emergencyKeywords = ['fire', 'danger', 'emergency', 'urgent', 'flood', 'threat', 'assault', 'injury']
     const lowerText = text.toLowerCase()
     const isEmergency = emergencyKeywords.some(keyword => lowerText.includes(keyword))
-    
+
     return { containsProfanity, isEmergency }
   }
 
@@ -89,11 +76,9 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
     setDescription(value)
     setProfanityWarning(false)
     setError('')
-    
-    // AI Scanner placeholder logic
+
     const validation = validateContent(value)
-    
-    // Emergency priority interceptor
+
     if (validation.isEmergency && !priorityLocked) {
       setDetectedPriority('urgent')
       setPriorityLocked(true)
@@ -101,8 +86,7 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
         duration: 5000,
       })
     }
-    
-    // Profanity detection
+
     if (validation.containsProfanity) {
       setProfanityWarning(true)
     }
@@ -112,8 +96,7 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
     setSubject(value)
     setProfanityWarning(false)
     setError('')
-    
-    // Check subject for profanity
+
     if (checkProfanity(value)) {
       setProfanityWarning(true)
     }
@@ -137,7 +120,6 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
     setProfanityWarning(false)
     setLoading(true)
 
-    // Check for profanity
     if (checkProfanity(subject) || checkProfanity(description)) {
       setProfanityWarning(true)
       setError('Your feedback contains inappropriate language. Please revise and resubmit.')
@@ -159,8 +141,7 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
 
       setSuccess(true)
       toast.success('Feedback submitted successfully!')
-      
-      // Reset form
+
       setTimeout(() => {
         setCategory('')
         setSubject('')
@@ -171,7 +152,7 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
         setDetectedPriority('medium')
         setPriorityLocked(false)
         setSelectedFiles([])
-        
+
         if (isAuthenticated) {
           onNavigate('dashboard')
         }
@@ -207,7 +188,6 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Feedback Type */}
               <Tabs value={type} onValueChange={(v) => setType(v as FeedbackType)}>
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="academic">Academic</TabsTrigger>
@@ -229,7 +209,6 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
                 </TabsContent>
               </Tabs>
 
-              {/* Category */}
               <div className="space-y-2">
                 <Label htmlFor="category">Category *</Label>
                 <Select value={category} onValueChange={setCategory} required>
@@ -246,26 +225,25 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
                 </Select>
               </div>
 
-              {/* Department (Academic only) */}
               {type === 'academic' && (
                 <div className="space-y-2">
                   <Label htmlFor="department">Department *</Label>
-                  <Select value={department} onValueChange={setDepartment} required>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select department" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {departments.map((dept) => (
-                        <SelectItem key={dept} value={dept}>
-                          {dept}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Input
+                    id="department"
+                    list="departments-list"
+                    value={department}
+                    onChange={(e) => setDepartment(e.target.value)}
+                    placeholder="Search and select department"
+                    required
+                  />
+                  <datalist id="departments-list">
+                    {DEPARTMENTS.map((dept) => (
+                      <option key={dept} value={dept} />
+                    ))}
+                  </datalist>
                 </div>
               )}
 
-              {/* Subject */}
               <div className="space-y-2">
                 <Label htmlFor="subject">Subject *</Label>
                 <Input
@@ -277,7 +255,6 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
                 />
               </div>
 
-              {/* Description */}
               <div className="space-y-2">
                 <Label htmlFor="description">Description *</Label>
                 <Textarea
@@ -293,7 +270,6 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
                 </p>
               </div>
 
-              {/* Similarity Detection - Shows after user types enough */}
               {(description.length > 20 || subject.length > 10) && category && (
                 <SimilarityDetector
                   description={description}
@@ -304,17 +280,15 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
                 />
               )}
 
-              {/* Priority Indicator (Emergency Detection) */}
               {priorityLocked && (
                 <Alert className="bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800">
                   <Lock className="h-4 w-4 text-red-600" />
                   <AlertDescription className="text-red-900 dark:text-red-100">
-                    <strong>Emergency detected:</strong> Priority automatically set to URGENT. This cannot be changed due to the nature of your feedback.
+                    <strong>Emergency detected:</strong> Priority automatically set to URGENT and locked. This cannot be changed due to the nature of your feedback.
                   </AlertDescription>
                 </Alert>
               )}
 
-              {/* File Attachment UI */}
               <div className="space-y-2">
                 <Label>Attachments (Optional)</Label>
                 <div className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-6 hover:border-[#001F54] dark:hover:border-blue-500 transition-colors">
@@ -341,8 +315,7 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
                     />
                   </div>
                 </div>
-                
-                {/* Selected Files Display */}
+
                 {selectedFiles.length > 0 && (
                   <div className="space-y-2">
                     {selectedFiles.map((file, index) => (
@@ -363,7 +336,6 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
                 )}
               </div>
 
-              {/* Anonymous Toggle */}
               {isAuthenticated && (
                 <div className="flex items-center justify-between p-4 border rounded-lg">
                   <div className="space-y-0.5">
@@ -380,7 +352,6 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
                 </div>
               )}
 
-              {/* Profanity Warning */}
               {profanityWarning && (
                 <Alert variant="destructive">
                   <AlertTriangle className="h-4 w-4" />
@@ -390,14 +361,12 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
                 </Alert>
               )}
 
-              {/* Error Message */}
               {error && !profanityWarning && (
                 <Alert variant="destructive">
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
 
-              {/* Success Message */}
               {success && (
                 <Alert className="bg-green-50 text-green-900 border-green-200 dark:bg-green-900/20 dark:text-green-100 dark:border-green-800">
                   <CheckCircle2 className="h-4 w-4" />
@@ -407,7 +376,6 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
                 </Alert>
               )}
 
-              {/* Submit Button */}
               <Button
                 type="submit"
                 className="w-full bg-[#001F54] hover:bg-blue-900"
@@ -427,7 +395,6 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
         </Card>
       </div>
 
-      {/* Modal to view similar feedback */}
       <FeedbackDetailModal
         feedback={viewingSimilar}
         open={!!viewingSimilar}

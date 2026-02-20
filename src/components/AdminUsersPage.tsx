@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { DEPARTMENTS } from '../lib/catalog'
 import { apiRequest } from '../lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
 import { Button } from './ui/button'
@@ -12,8 +13,12 @@ import { toast } from 'sonner'
 type UserRole =
   | 'student'
   | 'academic_staff'
+  | 'course_coordinator'
+  | 'dean'
   | 'student_affairs'
+  | 'head_student_affairs'
   | 'facilities_management'
+  | 'facilities_account'
   | 'department_head'
   | 'university_management'
   | 'ict_admin'
@@ -34,8 +39,12 @@ type AdminUser = {
 const ROLE_OPTIONS: Array<{ value: UserRole; label: string; needsDepartment?: boolean }> = [
   { value: 'student', label: 'Student' },
   { value: 'academic_staff', label: 'Academic Staff', needsDepartment: true },
+  { value: 'course_coordinator', label: 'Course Coordinator', needsDepartment: true },
+  { value: 'dean', label: 'Dean', needsDepartment: true },
   { value: 'student_affairs', label: 'Student Affairs' },
+  { value: 'head_student_affairs', label: 'Head Student Affairs' },
   { value: 'facilities_management', label: 'Facilities Management' },
+  { value: 'facilities_account', label: 'Facilities Account' },
   { value: 'department_head', label: 'Department Head', needsDepartment: true },
   { value: 'university_management', label: 'University Management' },
   { value: 'ict_admin', label: 'ICT Admin' },
@@ -51,6 +60,16 @@ export function AdminUsersPage({ onNavigate }: AdminUsersPageProps) {
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [reviewingDeletionId, setReviewingDeletionId] = useState<string | null>(null)
+  const [deletionRequests, setDeletionRequests] = useState<Array<{
+    id: string
+    requester_id: string
+    requester_email: string
+    requester_name: string
+    status: 'pending' | 'approved' | 'rejected'
+    reason?: string | null
+    created_at: string
+  }>>([])
   const [draftRole, setDraftRole] = useState<Record<string, UserRole>>({})
   const [draftDept, setDraftDept] = useState<Record<string, string>>({})
 
@@ -72,6 +91,17 @@ export function AdminUsersPage({ onNavigate }: AdminUsersPageProps) {
       }
       setDraftRole(roleDrafts)
       setDraftDept(deptDrafts)
+
+      const reqs = await apiRequest<Array<{
+        id: string
+        requester_id: string
+        requester_email: string
+        requester_name: string
+        status: 'pending' | 'approved' | 'rejected'
+        reason?: string | null
+        created_at: string
+      }>>('/admin/account-deletion-requests?status=pending', { token })
+      setDeletionRequests(reqs)
     } catch (err: any) {
       toast.error(err.message || 'Failed to load users')
     } finally {
@@ -148,6 +178,28 @@ export function AdminUsersPage({ onNavigate }: AdminUsersPageProps) {
       toast.error(err.message || 'Failed to delete user')
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  const handleReviewDeletion = async (requestId: string, approve: boolean) => {
+    if (!token) return
+    const reviewNote = window.prompt(approve ? 'Optional approval note' : 'Optional rejection reason') || ''
+    try {
+      setReviewingDeletionId(requestId)
+      await apiRequest<{ message: string }>(`/admin/account-deletion-requests/${requestId}`, {
+        method: 'PATCH',
+        token,
+        body: {
+          approve,
+          review_note: reviewNote.trim() || null,
+        },
+      })
+      toast.success(approve ? 'Deletion approved' : 'Deletion rejected')
+      await loadUsers()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to review deletion request')
+    } finally {
+      setReviewingDeletionId(null)
     }
   }
 
@@ -232,11 +284,17 @@ export function AdminUsersPage({ onNavigate }: AdminUsersPageProps) {
                       <div className="space-y-2">
                         <Label>Department</Label>
                         <Input
+                          list="admin-departments-list"
                           value={draftDept[row.id] ?? ''}
                           onChange={(e) => setDraftDept((prev) => ({ ...prev, [row.id]: e.target.value }))}
-                          placeholder="Required for Academic Staff/Dept Head"
+                          placeholder="Search and select department"
                           disabled={!roleMeta?.needsDepartment || row.is_major_admin || busy}
                         />
+                        <datalist id="admin-departments-list">
+                          {DEPARTMENTS.map((dept) => (
+                            <option key={dept} value={dept} />
+                          ))}
+                        </datalist>
                       </div>
 
                       <div className="flex items-end gap-2">
@@ -262,6 +320,45 @@ export function AdminUsersPage({ onNavigate }: AdminUsersPageProps) {
               })}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Pending Deletion Requests</CardTitle>
+          <CardDescription>Approve or reject user account deletion requests.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {deletionRequests.length === 0 && <p className="text-sm text-muted-foreground">No pending deletion requests.</p>}
+          {deletionRequests.map((req) => (
+            <div key={req.id} className="border rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-semibold">{req.requester_name}</p>
+                  <p className="text-sm text-muted-foreground">{req.requester_email}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Requested: {new Date(req.created_at).toLocaleString()}</p>
+                </div>
+                <Badge variant="secondary">Pending</Badge>
+              </div>
+              {req.reason && <p className="text-sm"><span className="font-medium">Reason:</span> {req.reason}</p>}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="destructive"
+                  disabled={reviewingDeletionId === req.id}
+                  onClick={() => void handleReviewDeletion(req.id, true)}
+                >
+                  Approve Delete
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={reviewingDeletionId === req.id}
+                  onClick={() => void handleReviewDeletion(req.id, false)}
+                >
+                  Reject
+                </Button>
+              </div>
+            </div>
+          ))}
         </CardContent>
       </Card>
     </div>

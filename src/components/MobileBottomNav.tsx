@@ -11,21 +11,21 @@ export function MobileBottomNav({ currentPage, onNavigate }: MobileBottomNavProp
 
   if (!user) return null
 
-  const isStaffOrAdmin = ['academic_staff', 'student_affairs', 'facilities_management', 'department_head', 'university_management', 'ict_admin'].includes(user.role)
+  const canViewAnalytics = ['department_head', 'university_management', 'course_coordinator', 'dean'].includes(user.role)
   const isIctAdmin = user.role === 'ict_admin'
 
   const navItems = [
     { id: 'dashboard', label: 'Home', icon: Home, show: true },
     { id: 'feedback', label: 'Submit', icon: MessageSquare, show: true },
     { id: 'surveys', label: 'Surveys', icon: MessageSquare, show: true },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3, show: isStaffOrAdmin },
+    { id: 'analytics', label: 'Analytics', icon: BarChart3, show: canViewAnalytics },
     { id: 'admin-users', label: 'Admin', icon: Shield, show: isIctAdmin },
     { id: 'notifications', label: 'Alerts', icon: Bell, show: true },
     { id: 'profile', label: 'Profile', icon: User, show: true },
   ].filter(item => item.show)
 
   return (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 shadow-2xl">
+    <div className="xl:hidden fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 shadow-2xl">
       <nav className="flex items-center justify-around px-2 py-2 safe-area-inset-bottom">
         {navItems.map((item) => {
           const Icon = item.icon

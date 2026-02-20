@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { Feedback, useFeedback } from '../../contexts/FeedbackContext'
 import { useAuth } from '../../contexts/AuthContext'
 import {
@@ -11,7 +11,6 @@ import {
 } from '../ui/dialog'
 import { Button } from '../ui/button'
 import { Label } from '../ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import { Textarea } from '../ui/textarea'
 import { Input } from '../ui/input'
 import { UserCheck, Users, Clock3 } from 'lucide-react'
@@ -27,6 +26,7 @@ interface AssignmentModalProps {
 interface StaffMember {
   id: string
   full_name: string
+  email: string
   role: string
   department?: string | null
 }
@@ -36,12 +36,11 @@ export function AssignmentModal({ feedback, open, onClose }: AssignmentModalProp
   const { assignFeedback, addInternalNote } = useFeedback()
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([])
   const [selectedStaff, setSelectedStaff] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
   const [assignmentNote, setAssignmentNote] = useState('')
   const [dueAt, setDueAt] = useState('')
   const [loading, setLoading] = useState(false)
   const [staffLoading, setStaffLoading] = useState(false)
-
-  if (!feedback) return null
 
   useEffect(() => {
     const loadStaff = async () => {
@@ -60,6 +59,20 @@ export function AssignmentModal({ feedback, open, onClose }: AssignmentModalProp
     void loadStaff()
   }, [open, token])
 
+  if (!feedback) return null
+
+  const filteredStaff = staffMembers.filter((staff) => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return true
+    return (
+      staff.full_name.toLowerCase().includes(q) ||
+      staff.email.toLowerCase().includes(q) ||
+      staff.role.toLowerCase().includes(q)
+    )
+  })
+
+  const actionVerb = user?.role === 'dean' ? 'Relegate' : 'Assign'
+
   const handleAssign = async () => {
     if (!selectedStaff) {
       toast.error('Please select a staff member')
@@ -75,19 +88,20 @@ export function AssignmentModal({ feedback, open, onClose }: AssignmentModalProp
       await assignFeedback(feedback.id, selectedStaff, user?.name || 'System', dueAtIso)
 
       const note = assignmentNote.trim()
-        ? `Assigned to ${staffMember?.full_name}. Note: ${assignmentNote}`
-        : `Assigned to ${staffMember?.full_name}`
+        ? `${actionVerb}d to ${staffMember?.full_name}. Note: ${assignmentNote}`
+        : `${actionVerb}d to ${staffMember?.full_name}`
 
       await addInternalNote(feedback.id, note, user?.name || 'System')
 
-      toast.success(`Feedback assigned to ${staffMember?.full_name}`)
+      toast.success(`Task ${actionVerb.toLowerCase()}d to ${staffMember?.full_name}`)
 
       setSelectedStaff('')
+      setSearchQuery('')
       setAssignmentNote('')
       setDueAt('')
       onClose()
     } catch (err: any) {
-      toast.error(err.message || 'Failed to assign feedback')
+      toast.error(err.message || `Failed to ${actionVerb.toLowerCase()} task`)
     } finally {
       setLoading(false)
     }
@@ -99,10 +113,10 @@ export function AssignmentModal({ feedback, open, onClose }: AssignmentModalProp
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserCheck className="w-5 h-5 text-[#001F54]" />
-            Assign Feedback
+            {actionVerb} Task
           </DialogTitle>
           <DialogDescription>
-            Assign this feedback to a staff member for resolution
+            Select the person responsible for this task
           </DialogDescription>
         </DialogHeader>
 
@@ -112,32 +126,42 @@ export function AssignmentModal({ feedback, open, onClose }: AssignmentModalProp
               {feedback.subject}
             </p>
             <p className="text-xs text-gray-600 dark:text-gray-400">
-              Category: {feedback.category} � Type: {feedback.type.replace('_', ' ')}
+              Category: {feedback.category} • Type: {feedback.type.replace('_', ' ')}
             </p>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="staff-select" className="flex items-center gap-2">
+            <Label htmlFor="staff-search" className="flex items-center gap-2">
               <Users className="w-4 h-4" />
-              Select Staff Member
+              Find Assignee
             </Label>
-            <Select value={selectedStaff} onValueChange={setSelectedStaff}>
-              <SelectTrigger id="staff-select">
-                <SelectValue placeholder={staffLoading ? 'Loading staff...' : 'Choose a staff member...'} />
-              </SelectTrigger>
-              <SelectContent>
-                {staffMembers.map((staff) => (
-                  <SelectItem key={staff.id} value={staff.id}>
-                    <div className="flex flex-col">
-                      <span className="font-medium">{staff.full_name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {(staff.department || 'N/A')} - {staff.role.replace('_', ' ')}
-                      </span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Input
+              id="staff-search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={staffLoading ? 'Loading people...' : 'Search by name, email, role'}
+            />
+            <div className="max-h-56 overflow-y-auto border rounded-md">
+              {filteredStaff.map((staff) => (
+                <button
+                  type="button"
+                  key={staff.id}
+                  onClick={() => setSelectedStaff(staff.id)}
+                  className={`w-full text-left p-3 border-b last:border-b-0 hover:bg-muted/50 ${
+                    selectedStaff === staff.id ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                  }`}
+                >
+                  <p className="font-medium text-sm">{staff.full_name}</p>
+                  <p className="text-xs text-muted-foreground">{staff.email}</p>
+                  <p className="text-xs text-muted-foreground capitalize">
+                    {staff.role.replace('_', ' ')}{staff.department ? ` - ${staff.department}` : ''}
+                  </p>
+                </button>
+              ))}
+              {!staffLoading && filteredStaff.length === 0 && (
+                <p className="p-3 text-sm text-muted-foreground">No matching users.</p>
+              )}
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -152,7 +176,7 @@ export function AssignmentModal({ feedback, open, onClose }: AssignmentModalProp
             <Label htmlFor="assignment-note">Assignment Note (Optional)</Label>
             <Textarea
               id="assignment-note"
-              placeholder="Add any specific instructions or context for the assigned staff member..."
+              placeholder="Add instructions or context for the assignee..."
               value={assignmentNote}
               onChange={(e) => setAssignmentNote(e.target.value)}
               rows={3}
@@ -169,7 +193,7 @@ export function AssignmentModal({ feedback, open, onClose }: AssignmentModalProp
             disabled={!selectedStaff || loading}
             className="bg-[#001F54] hover:bg-blue-900"
           >
-            {loading ? 'Assigning...' : 'Assign Feedback'}
+            {loading ? `${actionVerb}ing...` : `${actionVerb} Task`}
           </Button>
         </DialogFooter>
       </DialogContent>

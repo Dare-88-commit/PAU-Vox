@@ -85,8 +85,8 @@ export function FeedbackCard({ feedback, onClick, showStudent = false, onAssignC
             <p className="text-sm text-muted-foreground">{feedback.category}</p>
           </div>
 
-          {/* Assignment Button - only show for unassigned feedback */}
-          {onAssignClick && !feedback.assignedTo && feedback.status === 'pending' && (
+          {/* Assignment/Relegation Button */}
+          {onAssignClick && !['resolved', 'rejected'].includes(feedback.status) && (
             <Button
               variant="outline"
               size="sm"

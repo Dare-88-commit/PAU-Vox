@@ -52,9 +52,38 @@ class StaffDirectoryUser(BaseModel):
     id: str
     full_name: str
     role: UserRole
+    email: EmailStr
     department: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+class UserAchievement(BaseModel):
+    key: str
+    title: str
+    description: str
+    earned: bool
+    earned_at: str | None = None
+
+
+class UserProfileStats(BaseModel):
+    total_feedback: int
+    resolved_feedback: int
+    pending_feedback: int
+    resolution_rate: int
+
+
+class UserProfile(BaseModel):
+    id: str
+    email: EmailStr
+    full_name: str
+    role: UserRole
+    department: str | None = None
+    is_verified: bool
+    is_active: bool
+    created_at: str
+    stats: UserProfileStats
+    achievements: list[UserAchievement]
 
 
 TokenResponse.model_rebuild()
