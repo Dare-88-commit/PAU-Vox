@@ -53,7 +53,7 @@ function AppContent() {
   const { user, token, isAuthenticated } = useAuth()
   const [currentPage, setCurrentPage] = useState<Page>('home')
   const canViewAnalytics = !!user && ['university_management', 'department_head', 'course_coordinator', 'dean'].includes(user.role)
-  const canUseStaffInbox = !!user && ['academic_staff', 'course_coordinator', 'department_head', 'dean', 'student_affairs', 'head_student_affairs', 'facilities_management', 'facilities_account'].includes(user.role)
+  const canUseStaffInbox = !!user && ['academic_staff', 'course_coordinator', 'department_head', 'dean', 'student_affairs', 'head_student_affairs', 'head_security', 'security_supervisor', 'security_staff', 'head_maintenance', 'maintenance_staff', 'head_facilities', 'facilities_staff', 'head_cafeteria', 'cafeteria_staff', 'facilities_management', 'facilities_account'].includes(user.role)
 
   useEffect(() => {
     if (isAuthenticated && user?.verified && currentPage === 'home') {
@@ -84,7 +84,7 @@ function AppContent() {
   }, [currentPage, user, canViewAnalytics, canUseStaffInbox])
 
   useEffect(() => {
-    if (!token || !user || !['department_head', 'student_affairs', 'head_student_affairs', 'ict_admin', 'course_coordinator', 'dean', 'facilities_management'].includes(user.role)) return
+    if (!token || !user || !['department_head', 'student_affairs', 'head_student_affairs', 'ict_admin', 'dean', 'head_security', 'head_maintenance', 'head_facilities', 'head_cafeteria', 'facilities_management'].includes(user.role)) return
     const run = async () => {
       try {
         await apiRequest<{ message: string }>('/feedback/overdue/check', { method: 'POST', token })
@@ -130,6 +130,16 @@ function AppContent() {
         return <StudentAffairsDashboard onNavigate={handleNavigate} />
       case 'facilities_management':
         return <FacilitiesManagementDashboard onNavigate={handleNavigate} />
+      case 'head_security':
+      case 'security_supervisor':
+      case 'security_staff':
+      case 'head_maintenance':
+      case 'maintenance_staff':
+      case 'head_facilities':
+      case 'facilities_staff':
+      case 'head_cafeteria':
+      case 'cafeteria_staff':
+        return <StudentAffairsDashboard onNavigate={handleNavigate} />
       case 'department_head':
         return <AcademicStaffDashboard onNavigate={handleNavigate} />
       case 'course_coordinator':
@@ -202,7 +212,7 @@ function AppContent() {
         {showNavbar && <Navbar currentPage={currentPage} onNavigate={handleNavigate} />}
         {pageContent}
         {showNavbar && <MobileBottomNav currentPage={currentPage} onNavigate={handleNavigate} />}
-        {showNavbar && isAuthenticated && <div className="h-20 xl:hidden" aria-hidden="true" />}
+        {showNavbar && isAuthenticated && <div className="h-20 lg:hidden" aria-hidden="true" />}
       </>
     )
   }

@@ -1,4 +1,4 @@
-﻿import { useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useFeedback } from '../../contexts/FeedbackContext'
 import { DEPARTMENTS } from '../../lib/catalog'
@@ -21,7 +21,17 @@ export function AcademicStaffDashboard({ onNavigate }: AcademicStaffDashboardPro
   const { getAllFeedbacks } = useFeedback()
   const [selectedFeedback, setSelectedFeedback] = useState<Feedback | null>(null)
   const [assigningFeedback, setAssigningFeedback] = useState<Feedback | null>(null)
-  const [selectedDepartment, setSelectedDepartment] = useState(user?.department || DEPARTMENTS[0])
+  const availableDepartments = Array.from(
+    new Set(getAllFeedbacks().filter(f => f.type === 'academic' && f.department).map(f => f.department as string))
+  )
+  const defaultDepartment = availableDepartments[0] || DEPARTMENTS[0]
+  const [selectedDepartment, setSelectedDepartment] = useState(defaultDepartment)
+  useEffect(() => {
+    if (!availableDepartments.length) return
+    if (!availableDepartments.includes(selectedDepartment)) {
+      setSelectedDepartment(availableDepartments[0])
+    }
+  }, [availableDepartments.join('|'), selectedDepartment])
 
   const departmentFeedbacks = getAllFeedbacks().filter(
     f => f.type === 'academic' && f.department === selectedDepartment
@@ -32,7 +42,7 @@ export function AcademicStaffDashboard({ onNavigate }: AcademicStaffDashboardPro
   const resolvedCount = departmentFeedbacks.filter(f => f.status === 'resolved').length
   const urgentCount = departmentFeedbacks.filter(f => f.priority === 'urgent' || f.priority === 'high').length
 
-  const canAssign = !!user && ['department_head', 'course_coordinator', 'dean'].includes(user.role)
+  const canAssign = !!user && ['department_head', 'dean'].includes(user.role)
   const handleAssignClick = (e: React.MouseEvent, feedback: Feedback) => {
     e.stopPropagation()
     setAssigningFeedback(feedback)
@@ -54,7 +64,7 @@ export function AcademicStaffDashboard({ onNavigate }: AcademicStaffDashboardPro
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {DEPARTMENTS.map((dept) => (
+                {(availableDepartments.length ? availableDepartments : DEPARTMENTS).map((dept) => (
                   <SelectItem key={dept} value={dept}>
                     {dept}
                   </SelectItem>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { ALL_HOSTELS } from '../lib/catalog'
+import { ALL_HOSTELS, DEPARTMENTS } from '../lib/catalog'
 import { apiRequest } from '../lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
 import { Button } from './ui/button'
@@ -32,6 +32,10 @@ type Survey = {
   allow_anonymous_responses: boolean
   is_creator: boolean
   questions: SurveyQuestion[]
+  response_viewer_roles: string[]
+  response_viewer_emails: string[]
+  target_user_emails: string[]
+  target_departments: string[]
 }
 
 type MyResponse = {
@@ -86,6 +90,26 @@ export function SurveysPage({ onNavigate }: SurveysPageProps) {
     { prompt: 'Response speed', max_score: 10, requires_detail: false, detail_label: '' },
   ])
   const [allowAnonymousResponses, setAllowAnonymousResponses] = useState(false)
+  const [responseViewerRoles, setResponseViewerRoles] = useState<string[]>([])
+  const [responseViewerEmailsText, setResponseViewerEmailsText] = useState('')
+  const [targetUserEmailsText, setTargetUserEmailsText] = useState('')
+  const [targetDepartmentsText, setTargetDepartmentsText] = useState('')
+  const [reminderEmailsText, setReminderEmailsText] = useState<Record<string, string>>({})
+  const [reminderDepartmentsText, setReminderDepartmentsText] = useState<Record<string, string>>({})
+  const viewerRoleOptions = [
+    'academic_staff',
+    'course_coordinator',
+    'department_head',
+    'dean',
+    'student_affairs',
+    'head_student_affairs',
+    'head_security',
+    'security_supervisor',
+    'head_maintenance',
+    'head_facilities',
+    'head_cafeteria',
+    'university_management',
+  ]
 
   const loadSurveys = async () => {
     if (!token || !user) return
@@ -209,6 +233,10 @@ export function SurveysPage({ onNavigate }: SurveysPageProps) {
           type: surveyType,
           target_hostel: surveyType === 'hostel' ? targetHostel : null,
           allow_anonymous_responses: allowAnonymousResponses,
+          response_viewer_roles: responseViewerRoles,
+          response_viewer_emails: responseViewerEmailsText.split(',').map((item) => item.trim()).filter(Boolean),
+          target_user_emails: targetUserEmailsText.split(',').map((item) => item.trim()).filter(Boolean),
+          target_departments: targetDepartmentsText.split(',').map((item) => item.trim()).filter(Boolean),
           questions: validQuestions.map((q, idx) => ({
             prompt: q.prompt.trim(),
             max_score: q.max_score,
@@ -223,6 +251,10 @@ export function SurveysPage({ onNavigate }: SurveysPageProps) {
       setDescription('')
       setTargetHostel('')
       setAllowAnonymousResponses(false)
+      setResponseViewerRoles([])
+      setResponseViewerEmailsText('')
+      setTargetUserEmailsText('')
+      setTargetDepartmentsText('')
       setQuestions([{ prompt: '', max_score: 10, requires_detail: false, detail_label: '' }])
       await loadSurveys()
     } catch (err: any) {
@@ -235,6 +267,36 @@ export function SurveysPage({ onNavigate }: SurveysPageProps) {
   const addQuestion = () => setQuestions((prev) => [...prev, { prompt: '', max_score: 10, requires_detail: false, detail_label: '' }])
   const updateQuestion = (idx: number, patch: Partial<DraftQuestion>) => setQuestions((prev) => prev.map((q, i) => (i === idx ? { ...q, ...patch } : q)))
   const removeQuestion = (idx: number) => setQuestions((prev) => prev.filter((_, i) => i !== idx))
+
+  const applyAcademicTemplate = () => {
+    setTitle('Academic Course Feedback Survey')
+    setDescription('Rate your academic experience on a 1 to 5 scale.')
+    setSurveyType('general')
+    setQuestions([
+      { prompt: 'How well do you understand this course?', max_score: 5, requires_detail: false, detail_label: '' },
+      { prompt: 'How well does the lecturer teach this course?', max_score: 5, requires_detail: false, detail_label: '' },
+      { prompt: 'How much has this course exposed you to new content?', max_score: 5, requires_detail: false, detail_label: '' },
+      { prompt: 'How effective are assessments and feedback in this course?', max_score: 5, requires_detail: false, detail_label: '' },
+      { prompt: 'How likely are you to recommend this course to another student?', max_score: 5, requires_detail: false, detail_label: '' },
+    ])
+  }
+
+  const sendReminder = async (surveyId: string) => {
+    if (!token) return
+    try {
+      await apiRequest<{ message: string }>(`/surveys/${surveyId}/remind`, {
+        method: 'POST',
+        token,
+        body: {
+          target_user_emails: (reminderEmailsText[surveyId] || '').split(',').map((item) => item.trim()).filter(Boolean),
+          target_departments: (reminderDepartmentsText[surveyId] || '').split(',').map((item) => item.trim()).filter(Boolean),
+        },
+      })
+      toast.success('Reminder sent to students')
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to send reminder')
+    }
+  }
 
   if (!user) return null
 
@@ -268,6 +330,42 @@ export function SurveysPage({ onNavigate }: SurveysPageProps) {
             </div>
           )}
           <div className="space-y-2"><Label>Description</Label><Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} /></div>
+          <div className="space-y-2">
+            <Label>Allow Other Roles To View Responses</Label>
+            <div className="grid md:grid-cols-3 gap-2 max-h-40 overflow-y-auto border rounded-md p-2">
+              {viewerRoleOptions.map((role) => (
+                <label key={role} className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={responseViewerRoles.includes(role)}
+                    onCheckedChange={(checked) =>
+                      setResponseViewerRoles((prev) =>
+                        checked === true ? Array.from(new Set([...prev, role])) : prev.filter((item) => item !== role),
+                      )
+                    }
+                  />
+                  <span>{role.replaceAll('_', ' ')}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Allow Specific Users To View Responses (emails, comma-separated)</Label>
+            <Input value={responseViewerEmailsText} onChange={(e) => setResponseViewerEmailsText(e.target.value)} placeholder="lecturer@pau.edu.ng, hod@pau.edu.ng" />
+          </div>
+          <div className="space-y-2">
+            <Label>Target Specific Student Users (emails, comma-separated)</Label>
+            <Input value={targetUserEmailsText} onChange={(e) => setTargetUserEmailsText(e.target.value)} placeholder="student1@pau.edu.ng, student2@pau.edu.ng" />
+          </div>
+          <div className="space-y-2">
+            <Label>Target Departments (comma-separated)</Label>
+            <Input list="survey-departments-list" value={targetDepartmentsText} onChange={(e) => setTargetDepartmentsText(e.target.value)} placeholder="Computer Science, Software Engineering" />
+            <datalist id="survey-departments-list">
+              {DEPARTMENTS.map((department) => (
+                <option key={department} value={department} />
+              ))}
+            </datalist>
+          </div>
+          <Button variant="outline" onClick={applyAcademicTemplate}>Use Academic 1-5 Template</Button>
 
           <div className="space-y-2">
             <Label>Questions</Label>
@@ -298,6 +396,7 @@ export function SurveysPage({ onNavigate }: SurveysPageProps) {
           const canViewResults = !!results[survey.id]
           const isStudent = user.role === 'student'
           const myResponse = myResponses[survey.id]
+          const canSendReminder = survey.is_creator
 
           return (
             <Card key={survey.id}>
@@ -319,10 +418,35 @@ export function SurveysPage({ onNavigate }: SurveysPageProps) {
                 )}
 
                 {survey.is_creator && (
-                  <div className="pt-1">
+                  <div className="pt-1 space-y-2">
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <Input
+                        value={reminderEmailsText[survey.id] || ''}
+                        onChange={(e) => setReminderEmailsText((prev) => ({ ...prev, [survey.id]: e.target.value }))}
+                        placeholder="Reminder target emails (comma-separated)"
+                      />
+                      <Input
+                        list={`survey-reminder-departments-${survey.id}`}
+                        value={reminderDepartmentsText[survey.id] || ''}
+                        onChange={(e) => setReminderDepartmentsText((prev) => ({ ...prev, [survey.id]: e.target.value }))}
+                        placeholder="Reminder departments (comma-separated)"
+                      />
+                      <datalist id={`survey-reminder-departments-${survey.id}`}>
+                        {DEPARTMENTS.map((department) => (
+                          <option key={department} value={department} />
+                        ))}
+                      </datalist>
+                    </div>
+                    <div className="flex items-center gap-2">
                     <Button size="sm" variant="outline" onClick={() => void toggleResponses(survey)}>
                       {expandedResponses[survey.id] ? 'Hide Responses' : 'View Responses'}
                     </Button>
+                    {canSendReminder && (
+                      <Button size="sm" variant="outline" onClick={() => void sendReminder(survey.id)}>
+                        Send Reminder
+                      </Button>
+                    )}
+                    </div>
                   </div>
                 )}
 
@@ -362,14 +486,33 @@ export function SurveysPage({ onNavigate }: SurveysPageProps) {
                   <div className="space-y-3 pt-2">
                     {survey.questions.map((question) => (
                       <div key={question.id} className="space-y-2">
-                        <Label>{question.prompt} (0-{question.max_score})</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={question.max_score}
-                          value={answers[question.id] ?? ''}
-                          onChange={(e) => setAnswers(prev => ({ ...prev, [question.id]: Number(e.target.value) }))}
-                        />
+                        <Label>{question.prompt} (1-{question.max_score})</Label>
+                        {question.max_score <= 5 ? (
+                          <div className="flex items-center gap-2">
+                            {Array.from({ length: question.max_score }).map((_, idx) => {
+                              const value = idx + 1
+                              return (
+                                <Button
+                                  key={`${question.id}-${value}`}
+                                  type="button"
+                                  size="sm"
+                                  variant={(answers[question.id] ?? -1) === value ? 'default' : 'outline'}
+                                  onClick={() => setAnswers(prev => ({ ...prev, [question.id]: value }))}
+                                >
+                                  {value}
+                                </Button>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <Input
+                            type="number"
+                            min={1}
+                            max={question.max_score}
+                            value={answers[question.id] ?? ''}
+                            onChange={(e) => setAnswers(prev => ({ ...prev, [question.id]: Number(e.target.value) }))}
+                          />
+                        )}
                         <Input
                           placeholder={question.detail_label || 'Add details (optional)'}
                           value={details[question.id] ?? ''}

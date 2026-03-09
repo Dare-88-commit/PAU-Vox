@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { DEPARTMENTS } from '../lib/catalog'
+import { DEPARTMENTS, SCHOOLS } from '../lib/catalog'
 import { apiRequest } from '../lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
 import { Button } from './ui/button'
 import { Badge } from './ui/badge'
 import { Label } from './ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { Input } from './ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './ui/command'
+import { Check, ChevronsUpDown } from 'lucide-react'
 import { toast } from 'sonner'
 
 type UserRole =
@@ -17,6 +19,15 @@ type UserRole =
   | 'dean'
   | 'student_affairs'
   | 'head_student_affairs'
+  | 'head_security'
+  | 'security_supervisor'
+  | 'security_staff'
+  | 'head_maintenance'
+  | 'maintenance_staff'
+  | 'head_facilities'
+  | 'facilities_staff'
+  | 'head_cafeteria'
+  | 'cafeteria_staff'
   | 'facilities_management'
   | 'facilities_account'
   | 'department_head'
@@ -43,6 +54,15 @@ const ROLE_OPTIONS: Array<{ value: UserRole; label: string; needsDepartment?: bo
   { value: 'dean', label: 'Dean', needsDepartment: true },
   { value: 'student_affairs', label: 'Student Affairs' },
   { value: 'head_student_affairs', label: 'Head Student Affairs' },
+  { value: 'head_security', label: 'Head Security' },
+  { value: 'security_supervisor', label: 'Security Supervisor' },
+  { value: 'security_staff', label: 'Security Staff' },
+  { value: 'head_maintenance', label: 'Head Maintenance' },
+  { value: 'maintenance_staff', label: 'Maintenance Staff' },
+  { value: 'head_facilities', label: 'Head Facilities' },
+  { value: 'facilities_staff', label: 'Facilities Staff' },
+  { value: 'head_cafeteria', label: 'Head Cafeteria' },
+  { value: 'cafeteria_staff', label: 'Cafeteria Staff' },
   { value: 'facilities_management', label: 'Facilities Management' },
   { value: 'facilities_account', label: 'Facilities Account' },
   { value: 'department_head', label: 'Department Head', needsDepartment: true },
@@ -72,6 +92,28 @@ export function AdminUsersPage({ onNavigate }: AdminUsersPageProps) {
   }>>([])
   const [draftRole, setDraftRole] = useState<Record<string, UserRole>>({})
   const [draftDept, setDraftDept] = useState<Record<string, string>>({})
+  const [rolePickerOpen, setRolePickerOpen] = useState<Record<string, boolean>>({})
+
+  const parseScopeList = (value: string) =>
+    value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+
+  const addScopeChoice = (userId: string, choice: string) => {
+    setDraftDept((prev) => {
+      const existing = parseScopeList(prev[userId] || '')
+      if (existing.includes(choice)) return prev
+      return { ...prev, [userId]: [...existing, choice].join(', ') }
+    })
+  }
+
+  const removeScopeChoice = (userId: string, choice: string) => {
+    setDraftDept((prev) => {
+      const existing = parseScopeList(prev[userId] || '').filter((item) => item !== choice)
+      return { ...prev, [userId]: existing.join(', ') }
+    })
+  }
 
   const canDelete = !!user?.isMajorAdmin
 
@@ -120,7 +162,7 @@ export function AdminUsersPage({ onNavigate }: AdminUsersPageProps) {
     const department = (draftDept[target.id] || '').trim()
 
     if (selectedOption?.needsDepartment && !department) {
-      toast.error('Department is required for this role')
+      toast.error(selectedRole === 'dean' ? 'School scope is required for dean role' : 'Department scope is required for this role')
       return
     }
 
@@ -259,42 +301,89 @@ export function AdminUsersPage({ onNavigate }: AdminUsersPageProps) {
                     <div className="grid md:grid-cols-3 gap-3">
                       <div className="space-y-2">
                         <Label>Role</Label>
-                        <Select
-                          value={roleChoice}
-                          onValueChange={(v) => setDraftRole((prev) => ({ ...prev, [row.id]: v as UserRole }))}
-                          disabled={row.is_major_admin || busy}
+                        <Popover
+                          open={!!rolePickerOpen[row.id]}
+                          onOpenChange={(open) => setRolePickerOpen((prev) => ({ ...prev, [row.id]: open }))}
                         >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {ROLE_OPTIONS.map((opt) => (
-                              <SelectItem
-                                key={opt.value}
-                                value={opt.value}
-                                disabled={opt.value === 'ict_admin' && !user?.isMajorAdmin}
-                              >
-                                {opt.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" role="combobox" className="w-full justify-between" disabled={row.is_major_admin || busy}>
+                              {ROLE_OPTIONS.find((opt) => opt.value === roleChoice)?.label || 'Select role'}
+                              <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-[320px] p-0">
+                            <Command>
+                              <CommandInput placeholder="Search roles..." />
+                              <CommandList className="max-h-64">
+                                <CommandEmpty>No role found.</CommandEmpty>
+                                <CommandGroup>
+                                  {ROLE_OPTIONS.map((opt) => (
+                                    <CommandItem
+                                      key={opt.value}
+                                      value={`${opt.label} ${opt.value}`}
+                                      disabled={opt.value === 'ict_admin' && !user?.isMajorAdmin}
+                                      onSelect={() => {
+                                        setDraftRole((prev) => ({ ...prev, [row.id]: opt.value }))
+                                        setRolePickerOpen((prev) => ({ ...prev, [row.id]: false }))
+                                      }}
+                                    >
+                                      <Check className={`mr-2 h-4 w-4 ${roleChoice === opt.value ? 'opacity-100' : 'opacity-0'}`} />
+                                      {opt.label}
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
                       </div>
 
                       <div className="space-y-2">
-                        <Label>Department</Label>
+                        <Label>Scope</Label>
+                        {roleMeta?.needsDepartment && (
+                          <div className="flex flex-wrap gap-1">
+                            {parseScopeList(draftDept[row.id] ?? '').map((item) => (
+                              <button
+                                key={`${row.id}-${item}`}
+                                type="button"
+                                className="px-2 py-1 text-xs rounded bg-secondary hover:bg-secondary/80"
+                                onClick={() => removeScopeChoice(row.id, item)}
+                                disabled={row.is_major_admin || busy}
+                              >
+                                {item} ×
+                              </button>
+                            ))}
+                          </div>
+                        )}
                         <Input
-                          list="admin-departments-list"
                           value={draftDept[row.id] ?? ''}
                           onChange={(e) => setDraftDept((prev) => ({ ...prev, [row.id]: e.target.value }))}
-                          placeholder="Search and select department"
+                          placeholder={roleChoice === 'dean' ? 'Select school (or multiple with comma)' : 'Select department (or multiple with comma)'}
                           disabled={!roleMeta?.needsDepartment || row.is_major_admin || busy}
                         />
-                        <datalist id="admin-departments-list">
-                          {DEPARTMENTS.map((dept) => (
-                            <option key={dept} value={dept} />
-                          ))}
-                        </datalist>
+                        {roleMeta?.needsDepartment && (
+                          <div className="max-h-32 overflow-y-auto border rounded-md p-1 space-y-1">
+                            {(roleChoice === 'dean' ? SCHOOLS : DEPARTMENTS)
+                              .filter((item) => {
+                                const current = draftDept[row.id] ?? ''
+                                const term = current.split(',').pop()?.trim().toLowerCase() || ''
+                                if (!term) return true
+                                return item.toLowerCase().includes(term)
+                              })
+                              .slice(0, 20)
+                              .map((item) => (
+                                <button
+                                  key={`${row.id}-scope-${item}`}
+                                  type="button"
+                                  className="w-full text-left px-2 py-1 text-sm rounded hover:bg-muted"
+                                  onClick={() => addScopeChoice(row.id, item)}
+                                  disabled={row.is_major_admin || busy}
+                                >
+                                  {item}
+                                </button>
+                              ))}
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-end gap-2">

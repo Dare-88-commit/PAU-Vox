@@ -5,7 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
-from app.core.catalog import is_valid_department, normalize_department
+from app.core.catalog import (
+    is_valid_school,
+    parse_departments_scope,
+    parse_schools_scope,
+    stringify_scope,
+)
 from app.core.security import hash_password
 from app.db.session import get_db
 from app.models.account_deletion_request import AccountDeletionRequest
@@ -17,7 +22,22 @@ from app.schemas.admin import AdminUserOut, AssignRoleRequest, ResetPasswordRequ
 from app.schemas.common import MessageResponse
 
 router = APIRouter()
-DEPARTMENT_ROLES = {UserRole.academic_staff, UserRole.course_coordinator, UserRole.department_head, UserRole.dean}
+DEPARTMENT_ROLES = {UserRole.academic_staff, UserRole.course_coordinator, UserRole.department_head}
+NON_ACADEMIC_ROLES = {
+    UserRole.student_affairs,
+    UserRole.head_student_affairs,
+    UserRole.head_security,
+    UserRole.security_supervisor,
+    UserRole.security_staff,
+    UserRole.head_maintenance,
+    UserRole.maintenance_staff,
+    UserRole.head_facilities,
+    UserRole.facilities_staff,
+    UserRole.head_cafeteria,
+    UserRole.cafeteria_staff,
+    UserRole.facilities_management,
+    UserRole.facilities_account,
+}
 
 
 def _require_ict_or_major_admin(current_user: User) -> None:
@@ -59,16 +79,35 @@ def assign_user_role(
     if user.is_major_admin:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Major admin role cannot be changed")
 
-    department = normalize_department(payload.department)
-    if payload.role in DEPARTMENT_ROLES and not is_valid_department(department):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A valid department is required for this role")
-
     if payload.role == UserRole.student:
         user.role = UserRole.student
         user.department = None
     else:
         user.role = payload.role
-        user.department = department if payload.role in DEPARTMENT_ROLES else None
+        if payload.role in DEPARTMENT_ROLES:
+            departments = parse_departments_scope(payload.department)
+            if not departments:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="At least one valid department is required for this role",
+                )
+            user.department = stringify_scope(departments)
+        elif payload.role == UserRole.dean:
+            schools = parse_schools_scope(payload.department)
+            if not schools:
+                single = (payload.department or "").strip()
+                if is_valid_school(single):
+                    schools = [single]
+            if not schools:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="A valid school is required for dean role",
+                )
+            user.department = stringify_scope(schools)
+        elif payload.role in NON_ACADEMIC_ROLES:
+            user.department = None
+        else:
+            user.department = None
 
     db.commit()
     return MessageResponse(message=f"Role updated: {payload.role.value}")

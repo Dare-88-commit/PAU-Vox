@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
-from app.core.catalog import is_valid_department, normalize_department
+from app.core.catalog import department_school, is_valid_department, normalize_department, parse_departments_scope, parse_schools_scope
 from app.core.config import settings
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.session import get_db
@@ -411,23 +411,72 @@ def staff_directory(
     if current_user.role not in {
         UserRole.student_affairs,
         UserRole.head_student_affairs,
-        UserRole.facilities_management,
+        UserRole.head_security,
+        UserRole.security_supervisor,
+        UserRole.head_maintenance,
+        UserRole.head_facilities,
+        UserRole.head_cafeteria,
         UserRole.department_head,
-        UserRole.course_coordinator,
         UserRole.dean,
     }:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
 
-    query = db.query(User).filter(User.is_active.is_(True))
+    query = db.query(User).filter(User.is_active.is_(True), User.is_deleted.is_(False))
     if current_user.role == UserRole.head_student_affairs:
-        query = query.filter(User.role == UserRole.student_affairs)
+        query = query.filter(
+            User.role.in_(
+                [
+                    UserRole.student_affairs,
+                    UserRole.head_security,
+                    UserRole.head_maintenance,
+                    UserRole.head_facilities,
+                    UserRole.head_cafeteria,
+                ]
+            )
+        )
     elif current_user.role == UserRole.student_affairs:
-        query = query.filter(User.role == UserRole.facilities_management)
-    elif current_user.role == UserRole.facilities_management:
-        query = query.filter(User.role == UserRole.facilities_account)
+        query = query.filter(
+            User.role.in_(
+                [
+                    UserRole.security_supervisor,
+                    UserRole.security_staff,
+                    UserRole.maintenance_staff,
+                    UserRole.facilities_staff,
+                    UserRole.facilities_management,
+                    UserRole.facilities_account,
+                    UserRole.cafeteria_staff,
+                ]
+            )
+        )
+    elif current_user.role == UserRole.head_security:
+        query = query.filter(User.role.in_([UserRole.security_supervisor, UserRole.security_staff]))
+    elif current_user.role == UserRole.security_supervisor:
+        query = query.filter(User.role == UserRole.security_staff)
+    elif current_user.role == UserRole.head_maintenance:
+        query = query.filter(User.role == UserRole.maintenance_staff)
+    elif current_user.role == UserRole.head_facilities:
+        query = query.filter(User.role.in_([UserRole.facilities_staff, UserRole.facilities_account]))
+    elif current_user.role == UserRole.head_cafeteria:
+        query = query.filter(User.role == UserRole.cafeteria_staff)
     elif current_user.role == UserRole.dean:
-        query = query.filter(User.role == UserRole.department_head, User.department == current_user.department)
+        schools = set(parse_schools_scope(current_user.department))
+        query = query.filter(User.role.in_([UserRole.department_head, UserRole.course_coordinator, UserRole.academic_staff]))
+        users = query.order_by(User.full_name.asc()).all()
+        filtered_users = [
+            user
+            for user in users
+            if any(department_school(department) in schools for department in parse_departments_scope(user.department))
+        ]
+        return [StaffDirectoryUser.model_validate(user) for user in filtered_users]
     else:
-        query = query.filter(User.role.in_([UserRole.academic_staff, UserRole.course_coordinator]), User.department == current_user.department)
+        own_departments = set(parse_departments_scope(current_user.department))
+        query = query.filter(User.role.in_([UserRole.academic_staff, UserRole.course_coordinator]))
+        users = query.order_by(User.full_name.asc()).all()
+        filtered_users = [
+            user
+            for user in users
+            if own_departments.intersection(set(parse_departments_scope(user.department)))
+        ]
+        return [StaffDirectoryUser.model_validate(user) for user in filtered_users]
     users = query.order_by(User.full_name.asc()).all()
     return [StaffDirectoryUser.model_validate(user) for user in users]

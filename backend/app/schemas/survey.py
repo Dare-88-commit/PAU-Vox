@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.models.enums import SurveyType
+from app.models.enums import SurveyType, UserRole
 
 
 class SurveyQuestionCreate(BaseModel):
@@ -22,6 +22,10 @@ class SurveyCreate(BaseModel):
     opens_at: datetime | None = None
     closes_at: datetime | None = None
     questions: list[SurveyQuestionCreate] = Field(min_length=1)
+    response_viewer_roles: list[UserRole] = Field(default_factory=list)
+    response_viewer_emails: list[str] = Field(default_factory=list)
+    target_user_emails: list[str] = Field(default_factory=list)
+    target_departments: list[str] = Field(default_factory=list)
 
 
 class SurveyQuestionOut(BaseModel):
@@ -48,6 +52,10 @@ class SurveyOut(BaseModel):
     created_at: datetime
     is_creator: bool = False
     questions: list[SurveyQuestionOut]
+    response_viewer_roles: list[UserRole] = Field(default_factory=list)
+    response_viewer_emails: list[str] = Field(default_factory=list)
+    target_user_emails: list[str] = Field(default_factory=list)
+    target_departments: list[str] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -61,6 +69,11 @@ class SurveyAnswerInput(BaseModel):
 class SurveySubmitRequest(BaseModel):
     answers: list[SurveyAnswerInput] = Field(min_length=1)
     anonymous: bool = False
+
+
+class SurveyReminderRequest(BaseModel):
+    target_user_emails: list[str] = Field(default_factory=list)
+    target_departments: list[str] = Field(default_factory=list)
 
 
 class SurveyAggregate(BaseModel):

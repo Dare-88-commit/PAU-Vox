@@ -6,7 +6,7 @@ from app.models.feedback import Feedback
 from app.models.internal_note import InternalNote
 from app.models.notification import Notification
 from app.models.status_history import StatusHistory
-from app.models.survey import Survey, SurveyQuestion, SurveyResponse
+from app.models.survey import Survey, SurveyAudience, SurveyQuestion, SurveyResponse, SurveyViewerAccess
 from app.models.user import User
 
 __all__ = [
@@ -22,4 +22,6 @@ __all__ = [
     "Survey",
     "SurveyQuestion",
     "SurveyResponse",
+    "SurveyViewerAccess",
+    "SurveyAudience",
 ]

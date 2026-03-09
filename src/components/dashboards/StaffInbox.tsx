@@ -28,7 +28,7 @@ interface StaffInboxProps {
 
 export function StaffInbox({ onNavigate }: StaffInboxProps) {
   const { user } = useAuth()
-  const { getAllFeedbacks, getDepartmentFeedbacks } = useFeedback()
+  const { getAllFeedbacks } = useFeedback()
   const [selectedFeedback, setSelectedFeedback] = useState<Feedback | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterType, setFilterType] = useState<'all' | 'academic' | 'non_academic'>('all')
@@ -50,19 +50,22 @@ export function StaffInbox({ onNavigate }: StaffInboxProps) {
       case 'course_coordinator':
       case 'dean':
       case 'department_head':
-        if (user.department) {
-          feedbacks = getDepartmentFeedbacks(user.department, 'academic')
-        }
+        feedbacks = getAllFeedbacks().filter(f => f.type === 'academic')
         break
       case 'student_affairs':
       case 'head_student_affairs':
-        feedbacks = getAllFeedbacks().filter(f => f.type === 'non_academic')
-        break
+      case 'head_security':
+      case 'security_supervisor':
+      case 'security_staff':
+      case 'head_maintenance':
+      case 'maintenance_staff':
+      case 'head_facilities':
+      case 'facilities_staff':
+      case 'head_cafeteria':
+      case 'cafeteria_staff':
       case 'facilities_management':
       case 'facilities_account':
-        feedbacks = getAllFeedbacks().filter(
-          f => f.type === 'non_academic' && ['Hostel/Accommodation', 'Air Conditioning', 'Electricity/Power', 'Water Supply', 'Sanitation/Cleanliness'].includes(f.category)
-        )
+        feedbacks = getAllFeedbacks().filter(f => f.type === 'non_academic')
         break
       default:
         feedbacks = []

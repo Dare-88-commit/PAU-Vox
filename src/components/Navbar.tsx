@@ -61,7 +61,7 @@ export function Navbar({ currentPage, onNavigate }: NavbarProps) {
   }
 
   const canViewAnalytics = !!user && ['department_head', 'university_management', 'course_coordinator', 'dean'].includes(user.role)
-  const canUseStaffInbox = !!user && ['academic_staff', 'course_coordinator', 'department_head', 'dean', 'student_affairs', 'head_student_affairs', 'facilities_management', 'facilities_account'].includes(user.role)
+  const canUseStaffInbox = !!user && ['academic_staff', 'course_coordinator', 'department_head', 'dean', 'student_affairs', 'head_student_affairs', 'head_security', 'security_supervisor', 'security_staff', 'head_maintenance', 'maintenance_staff', 'head_facilities', 'facilities_staff', 'head_cafeteria', 'cafeteria_staff', 'facilities_management', 'facilities_account'].includes(user.role)
 
   const mainNavLinks = [
     { id: 'dashboard', label: 'Dashboard', icon: <Home className="w-4 h-4" />, requireAuth: true },
@@ -101,7 +101,7 @@ export function Navbar({ currentPage, onNavigate }: NavbarProps) {
               </div>
             </button>
 
-            <div className={`${user ? 'hidden xl:flex max-w-[45%]' : 'hidden md:flex max-w-[60%]'} items-center space-x-1 overflow-x-auto`}>
+            <div className={`${user ? 'hidden lg:flex max-w-[45%]' : 'hidden md:flex max-w-[60%]'} items-center space-x-1 overflow-x-auto`}>
               {filteredNavLinks.map((link) => (
                 <button key={link.id} onClick={() => { onNavigate(link.id); setIsOpen(false) }} className={`flex items-center shrink-0 px-4 py-2 rounded-xl text-sm font-medium transition-all ${currentPage === link.id ? (scrolled ? 'bg-blue-100 dark:bg-blue-900 text-[#001F54] dark:text-blue-300' : 'bg-white/20 text-white') : (scrolled ? 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800' : 'text-blue-100 hover:bg-white/10')}`}>
                   <span className="mr-2">{link.icon}</span>{link.label}
@@ -109,7 +109,7 @@ export function Navbar({ currentPage, onNavigate }: NavbarProps) {
               ))}
             </div>
 
-            <div className={`${user ? 'hidden xl:flex' : 'hidden md:flex'} items-center space-x-3`}>
+            <div className={`${user ? 'hidden lg:flex' : 'hidden md:flex'} items-center space-x-3`}>
               {user && (
                 <form onSubmit={handleSearch} className="relative hidden 2xl:block">
                   <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search feedback..." className={`w-44 pl-10 pr-4 py-2 rounded-xl text-sm transition-all ${scrolled ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700' : 'bg-white/20 text-white placeholder-blue-200 border border-white/30'} focus:outline-none focus:ring-2 focus:ring-[#001F54]`} />
@@ -164,16 +164,45 @@ export function Navbar({ currentPage, onNavigate }: NavbarProps) {
               ) : (
                 <div className="flex items-center space-x-3"><button onClick={() => onNavigate('login')} className={`px-4 py-2 rounded-xl font-medium transition-all ${scrolled ? 'text-[#001F54] hover:text-blue-700 hover:bg-blue-50' : 'text-white hover:bg-white/10'}`}>Sign In</button><button onClick={() => onNavigate('signup')} className="px-6 py-2 bg-gradient-to-r from-[#001F54] to-blue-600 text-white rounded-xl font-medium hover:from-blue-800 hover:to-blue-700 transition-all shadow-lg hover:shadow-xl">Join Now</button></div>
               )}
+
+              {user && (
+                <button
+                  onClick={handleLogout}
+                  className={`flex items-center px-3 py-2 rounded-xl text-sm font-medium transition-colors ${
+                    scrolled
+                      ? 'text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20'
+                      : 'text-white hover:bg-white/10'
+                  }`}
+                >
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Logout
+                </button>
+              )}
             </div>
 
-            <button className={`${user ? 'xl:hidden' : 'md:hidden'} p-2 rounded-xl transition-colors ${scrolled ? 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800' : 'text-white hover:bg-white/10'}`} onClick={() => setIsOpen(!isOpen)} aria-label="Toggle menu">
-              {isOpen ? <X size={24} /> : <Menu size={24} />}
-            </button>
+            <div className="flex items-center gap-2">
+              {user && (
+                <button
+                  className={`lg:hidden p-2 rounded-xl transition-colors ${
+                    scrolled
+                      ? 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20'
+                      : 'text-white hover:bg-white/10'
+                  }`}
+                  onClick={handleLogout}
+                  aria-label="Logout"
+                >
+                  <LogOut size={20} />
+                </button>
+              )}
+              <button className={`${user ? 'lg:hidden' : 'md:hidden'} p-2 rounded-xl transition-colors ${scrolled ? 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800' : 'text-white hover:bg-white/10'}`} onClick={() => setIsOpen(!isOpen)} aria-label="Toggle menu">
+                {isOpen ? <X size={24} /> : <Menu size={24} />}
+              </button>
+            </div>
           </div>
         </div>
 
         {isOpen && (
-          <div className="xl:hidden bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 shadow-2xl">
+          <div className="lg:hidden bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 shadow-2xl">
             <div className="max-w-7xl mx-auto px-4 py-6">
               {user && (<form onSubmit={handleSearch} className="mb-6"><div className="relative"><input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search feedback..." className="w-full pl-10 pr-4 py-3 bg-gray-100 dark:bg-gray-800 rounded-xl text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#001F54]" /><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" /></div></form>)}
               <div className="space-y-2">{filteredNavLinks.map((link) => (<button key={link.id} onClick={() => { onNavigate(link.id); setIsOpen(false) }} className={`flex items-center w-full px-4 py-3 rounded-xl transition-colors ${currentPage === link.id ? 'bg-blue-50 dark:bg-blue-900/20 text-[#001F54] dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}`}><span className="mr-3">{link.icon}</span>{link.label}</button>))}</div>

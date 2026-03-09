@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useFeedback, FeedbackType, FeedbackPriority, Feedback } from '../../contexts/FeedbackContext'
 import { useAuth } from '../../contexts/AuthContext'
-import { DEPARTMENTS } from '../../lib/catalog'
+import { ACADEMIC_FEEDBACK_CATEGORIES, DEPARTMENTS, NON_ACADEMIC_CATEGORIES } from '../../lib/catalog'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
@@ -19,30 +19,6 @@ import { FeedbackDetailModal } from './FeedbackDetailModal'
 interface FeedbackFormProps {
   onNavigate: (page: string) => void
 }
-
-const academicCategories = [
-  'Course Content',
-  'Lecturer Performance',
-  'Assessment/Examination',
-  'Timetable/Scheduling',
-  'Department Administration',
-  'Curriculum Issues',
-  'Other'
-]
-
-const nonAcademicCategories = [
-  'Hostel/Accommodation',
-  'Air Conditioning',
-  'Electricity/Power',
-  'Water Supply',
-  'Sanitation/Cleanliness',
-  'Campus Security',
-  'Cafeteria/Dining',
-  'Internet/Wi-Fi',
-  'Sports Facilities',
-  'Library',
-  'Other'
-]
 
 export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
   const { submitFeedback, checkProfanity } = useFeedback()
@@ -165,7 +141,7 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
     }
   }
 
-  const categories = type === 'academic' ? academicCategories : nonAcademicCategories
+  const categories = type === 'academic' ? ACADEMIC_FEEDBACK_CATEGORIES : NON_ACADEMIC_CATEGORIES
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">

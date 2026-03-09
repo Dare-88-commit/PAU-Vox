@@ -8,7 +8,7 @@ import { Button } from './ui/button'
 import { Switch } from './ui/switch'
 import { Separator } from './ui/separator'
 import { Badge } from './ui/badge'
-import { User, Shield, Bell, Download, Trash2, Save, CheckCircle2, Moon, Lock } from 'lucide-react'
+import { User, Shield, Bell, Download, Trash2, Save, CheckCircle2, Moon, Lock, LogOut } from 'lucide-react'
 import { toast } from 'sonner'
 import { apiRequest } from '../lib/api'
 
@@ -17,7 +17,7 @@ interface SettingsPageProps {
 }
 
 export function SettingsPage({ onNavigate }: SettingsPageProps) {
-  const { user, token } = useAuth()
+  const { user, token, logout } = useAuth()
   const { darkMode, toggleDarkMode } = useTheme()
   const [emailNotifications, setEmailNotifications] = useState(true)
   const [pushNotifications, setPushNotifications] = useState(true)
@@ -186,6 +186,11 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
     void run()
   }
 
+  const handleLogout = () => {
+    logout()
+    onNavigate('home')
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -232,6 +237,12 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                     </p>
                   </div>
                 </div>
+              </div>
+              <div className="pt-2">
+                <Button variant="outline" onClick={handleLogout}>
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Log out
+                </Button>
               </div>
             </CardContent>
           </Card>

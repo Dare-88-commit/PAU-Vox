@@ -7,7 +7,15 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user
-from app.core.catalog import is_valid_department, normalize_department
+from app.core.catalog import (
+    department_school,
+    is_valid_department,
+    non_academic_units_for_category,
+    normalize_department,
+    parse_departments_scope,
+    parse_schools_scope,
+    role_unit,
+)
 from app.core.config import settings
 from app.core.policies import can_add_internal_note, can_view_feedback
 from app.db.session import get_db
@@ -37,6 +45,42 @@ router = APIRouter()
 
 EDIT_WINDOW_SECONDS = 60 * 60
 
+ACADEMIC_ASSIGNABLE_BY_DEAN = {UserRole.department_head, UserRole.course_coordinator, UserRole.academic_staff}
+ACADEMIC_ASSIGNABLE_BY_HOD = {UserRole.course_coordinator, UserRole.academic_staff}
+NON_ACADEMIC_OPERATIONS_ROLES = {
+    UserRole.student_affairs,
+    UserRole.head_student_affairs,
+    UserRole.head_security,
+    UserRole.security_supervisor,
+    UserRole.security_staff,
+    UserRole.head_maintenance,
+    UserRole.maintenance_staff,
+    UserRole.head_facilities,
+    UserRole.facilities_staff,
+    UserRole.head_cafeteria,
+    UserRole.cafeteria_staff,
+    UserRole.facilities_management,
+    UserRole.facilities_account,
+}
+
+
+def _department_in_user_scope(user: User, department: str | None) -> bool:
+    if not department:
+        return False
+    if user.role == UserRole.dean:
+        return department_school(department) in set(parse_schools_scope(user.department))
+    if user.role in {UserRole.academic_staff, UserRole.department_head, UserRole.course_coordinator}:
+        return department in set(parse_departments_scope(user.department))
+    return False
+
+
+def _can_assign_to_non_academic_role(category: str, assignee_role: UserRole) -> bool:
+    units = non_academic_units_for_category(category)
+    if assignee_role in {UserRole.student_affairs, UserRole.head_student_affairs}:
+        return True
+    unit = role_unit(assignee_role.value)
+    return bool(unit and unit in units)
+
 
 def _serialize_feedback(feedback: Feedback, viewer_role: UserRole) -> FeedbackOut:
     student_name = None if (feedback.is_anonymous and viewer_role != UserRole.student) else feedback.student.full_name
@@ -51,6 +95,15 @@ def _serialize_feedback(feedback: Feedback, viewer_role: UserRole) -> FeedbackOu
         UserRole.department_head,
         UserRole.student_affairs,
         UserRole.head_student_affairs,
+        UserRole.head_security,
+        UserRole.security_supervisor,
+        UserRole.security_staff,
+        UserRole.head_maintenance,
+        UserRole.maintenance_staff,
+        UserRole.head_facilities,
+        UserRole.facilities_staff,
+        UserRole.head_cafeteria,
+        UserRole.cafeteria_staff,
         UserRole.facilities_management,
         UserRole.facilities_account,
     }
@@ -113,12 +166,12 @@ def _notify(
 
 def _can_modify_status(current_user: User, feedback: Feedback) -> bool:
     role = current_user.role
-    if role in {UserRole.academic_staff, UserRole.department_head, UserRole.course_coordinator, UserRole.dean}:
-        return feedback.type == FeedbackType.academic and feedback.department == current_user.department
-    if role in {UserRole.student_affairs, UserRole.head_student_affairs}:
-        return feedback.type == FeedbackType.non_academic
-    if role in {UserRole.facilities_management, UserRole.facilities_account}:
-        return feedback.type == FeedbackType.non_academic
+    if role in {UserRole.academic_staff, UserRole.department_head, UserRole.dean}:
+        return feedback.type == FeedbackType.academic and _department_in_user_scope(current_user, feedback.department)
+    if role == UserRole.course_coordinator:
+        return False
+    if role in NON_ACADEMIC_OPERATIONS_ROLES:
+        return feedback.type == FeedbackType.non_academic and can_view_feedback(current_user, feedback)
     return False
 
 
@@ -185,10 +238,12 @@ def create_feedback(
     )
 
     if priority in {FeedbackPriority.high, FeedbackPriority.urgent}:
-        target_role = UserRole.student_affairs if payload.type == FeedbackType.non_academic else UserRole.department_head
-        staff_targets = db.query(User).filter(User.role == target_role).all()
+        if payload.type == FeedbackType.non_academic:
+            staff_targets = db.query(User).filter(User.role.in_([UserRole.head_student_affairs, UserRole.student_affairs])).all()
+        else:
+            staff_targets = db.query(User).filter(User.role.in_([UserRole.dean, UserRole.department_head])).all()
         for staff in staff_targets:
-            if payload.type == FeedbackType.academic and staff.department != payload.department:
+            if payload.type == FeedbackType.academic and not _department_in_user_scope(staff, payload.department):
                 continue
             _notify(
                 db,
@@ -230,16 +285,7 @@ def list_feedback(
     if status_filter:
         query = query.filter(Feedback.status == status_filter)
 
-    if current_user.role == UserRole.student:
-        query = query.filter(Feedback.student_id == current_user.id)
-    elif current_user.role in {UserRole.academic_staff, UserRole.department_head, UserRole.course_coordinator, UserRole.dean}:
-        query = query.filter(Feedback.type == FeedbackType.academic, Feedback.department == current_user.department)
-    elif current_user.role in {UserRole.student_affairs, UserRole.head_student_affairs}:
-        query = query.filter(Feedback.type == FeedbackType.non_academic)
-    elif current_user.role in {UserRole.facilities_management, UserRole.facilities_account}:
-        query = query.filter(Feedback.type == FeedbackType.non_academic)
-
-    items = query.order_by(Feedback.created_at.desc()).all()
+    items = [row for row in query.order_by(Feedback.created_at.desc()).all() if can_view_feedback(current_user, row)]
     return FeedbackListResponse(items=[_serialize_feedback(row, current_user.role) for row in items], total=len(items))
 
 
@@ -367,30 +413,61 @@ def assign_feedback(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot assign a closed issue")
 
     if current_user.role == UserRole.head_student_affairs:
-        if feedback.type != FeedbackType.non_academic or assignee.role != UserRole.student_affairs:
+        if feedback.type != FeedbackType.non_academic:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assignment target")
+        if assignee.role not in {
+            UserRole.student_affairs,
+            UserRole.head_security,
+            UserRole.head_maintenance,
+            UserRole.head_facilities,
+            UserRole.head_cafeteria,
+        }:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assignment target")
+        if not _can_assign_to_non_academic_role(feedback.category, assignee.role):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assignee is not mapped to this category")
     elif current_user.role == UserRole.student_affairs:
-        if feedback.type != FeedbackType.non_academic or assignee.role != UserRole.facilities_management:
+        if feedback.type != FeedbackType.non_academic:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assignment target")
-    elif current_user.role == UserRole.facilities_management:
-        if feedback.type != FeedbackType.non_academic or assignee.role != UserRole.facilities_account:
+        allowed_roles = {
+            UserRole.security_supervisor,
+            UserRole.security_staff,
+            UserRole.maintenance_staff,
+            UserRole.facilities_staff,
+            UserRole.facilities_management,
+            UserRole.facilities_account,
+            UserRole.cafeteria_staff,
+        }
+        if assignee.role not in allowed_roles or not _can_assign_to_non_academic_role(feedback.category, assignee.role):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assignment target")
+    elif current_user.role == UserRole.head_security:
+        if feedback.type != FeedbackType.non_academic or assignee.role not in {UserRole.security_supervisor, UserRole.security_staff}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assignment target")
+    elif current_user.role == UserRole.security_supervisor:
+        if feedback.type != FeedbackType.non_academic or assignee.role != UserRole.security_staff:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assignment target")
+    elif current_user.role == UserRole.head_maintenance:
+        if feedback.type != FeedbackType.non_academic or assignee.role != UserRole.maintenance_staff:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assignment target")
+    elif current_user.role == UserRole.head_facilities:
+        if feedback.type != FeedbackType.non_academic or assignee.role not in {UserRole.facilities_staff, UserRole.facilities_account}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assignment target")
+    elif current_user.role == UserRole.head_cafeteria:
+        if feedback.type != FeedbackType.non_academic or assignee.role != UserRole.cafeteria_staff:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assignment target")
     elif current_user.role == UserRole.dean:
-        if (
-            feedback.type != FeedbackType.academic
-            or feedback.department != current_user.department
-            or assignee.role != UserRole.department_head
-            or assignee.department != current_user.department
-        ):
+        if feedback.type != FeedbackType.academic or not _department_in_user_scope(current_user, feedback.department):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid relegation target")
-    elif current_user.role in {UserRole.department_head, UserRole.course_coordinator}:
-        if (
-            feedback.type != FeedbackType.academic
-            or feedback.department != current_user.department
-            or assignee.role not in {UserRole.academic_staff, UserRole.course_coordinator}
-            or assignee.department != current_user.department
-        ):
+        if assignee.role not in ACADEMIC_ASSIGNABLE_BY_DEAN or not _department_in_user_scope(current_user, assignee.department):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid relegation target")
+    elif current_user.role == UserRole.department_head:
+        if feedback.type != FeedbackType.academic or not _department_in_user_scope(current_user, feedback.department):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assignment target")
+        if assignee.role not in ACADEMIC_ASSIGNABLE_BY_HOD:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assignment target")
+        holder_departments = set(parse_departments_scope(current_user.department))
+        assignee_departments = set(parse_departments_scope(assignee.department))
+        if not holder_departments.intersection(assignee_departments):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assignee must belong to at least one of your departments")
     else:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions for assignment")
 
@@ -457,13 +534,26 @@ def escalate_feedback(
     feedback = db.query(Feedback).options(joinedload(Feedback.student)).filter(Feedback.id == feedback_id).first()
     if not feedback:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found")
-    if current_user.role not in {UserRole.academic_staff, UserRole.student_affairs, UserRole.course_coordinator, UserRole.facilities_management, UserRole.facilities_account}:
+    if current_user.role not in {
+        UserRole.academic_staff,
+        UserRole.department_head,
+        UserRole.student_affairs,
+        UserRole.course_coordinator,
+        UserRole.facilities_management,
+        UserRole.facilities_account,
+        UserRole.security_supervisor,
+        UserRole.security_staff,
+        UserRole.maintenance_staff,
+        UserRole.facilities_staff,
+        UserRole.cafeteria_staff,
+    }:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only operational staff can escalate")
 
     if feedback.type == FeedbackType.academic:
-        recipients = db.query(User).filter(User.role == UserRole.department_head, User.department == feedback.department).all()
+        recipients = db.query(User).filter(User.role.in_([UserRole.department_head, UserRole.dean])).all()
+        recipients = [row for row in recipients if _department_in_user_scope(row, feedback.department)]
     else:
-        recipients = db.query(User).filter(User.role == UserRole.student_affairs).all()
+        recipients = db.query(User).filter(User.role.in_([UserRole.student_affairs, UserRole.head_student_affairs])).all()
     for recipient in recipients:
         _notify(
             db,
@@ -482,7 +572,18 @@ def check_overdue_assignments(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> MessageResponse:
-    if current_user.role not in {UserRole.ict_admin, UserRole.department_head, UserRole.student_affairs, UserRole.course_coordinator, UserRole.head_student_affairs, UserRole.dean, UserRole.facilities_management}:
+    if current_user.role not in {
+        UserRole.ict_admin,
+        UserRole.department_head,
+        UserRole.student_affairs,
+        UserRole.head_student_affairs,
+        UserRole.dean,
+        UserRole.head_security,
+        UserRole.head_maintenance,
+        UserRole.head_facilities,
+        UserRole.head_cafeteria,
+        UserRole.facilities_management,
+    }:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
 
     now = datetime.now(timezone.utc)
@@ -546,7 +647,25 @@ async def upload_attachment(
     can_upload = False
     if current_user.role == UserRole.student:
         can_upload = feedback.student_id == current_user.id and (datetime.now(timezone.utc) - feedback.created_at).total_seconds() <= EDIT_WINDOW_SECONDS
-    elif current_user.role in {UserRole.facilities_management, UserRole.facilities_account, UserRole.student_affairs, UserRole.head_student_affairs, UserRole.department_head, UserRole.dean, UserRole.academic_staff, UserRole.course_coordinator}:
+    elif current_user.role in {
+        UserRole.facilities_management,
+        UserRole.facilities_account,
+        UserRole.student_affairs,
+        UserRole.head_student_affairs,
+        UserRole.head_security,
+        UserRole.security_supervisor,
+        UserRole.security_staff,
+        UserRole.head_maintenance,
+        UserRole.maintenance_staff,
+        UserRole.head_facilities,
+        UserRole.facilities_staff,
+        UserRole.head_cafeteria,
+        UserRole.cafeteria_staff,
+        UserRole.department_head,
+        UserRole.dean,
+        UserRole.academic_staff,
+        UserRole.course_coordinator,
+    }:
         can_upload = can_view_feedback(current_user, feedback)
     if not can_upload:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")

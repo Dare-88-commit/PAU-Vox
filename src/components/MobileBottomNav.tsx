@@ -25,7 +25,7 @@ export function MobileBottomNav({ currentPage, onNavigate }: MobileBottomNavProp
   ].filter(item => item.show)
 
   return (
-    <div className="xl:hidden fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 shadow-2xl">
+    <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 shadow-2xl">
       <nav className="flex items-center justify-around px-2 py-2 safe-area-inset-bottom">
         {navItems.map((item) => {
           const Icon = item.icon

@@ -67,7 +67,7 @@ export function FeedbackDetailModal({ feedback, open, onClose }: FeedbackDetailM
 
   if (!feedback) return null
 
-  const canUpdateStatus = user && ['academic_staff', 'course_coordinator', 'dean', 'student_affairs', 'head_student_affairs', 'facilities_management', 'facilities_account', 'department_head'].includes(user.role)
+  const canUpdateStatus = user && ['academic_staff', 'dean', 'student_affairs', 'head_student_affairs', 'head_security', 'security_supervisor', 'security_staff', 'head_maintenance', 'maintenance_staff', 'head_facilities', 'facilities_staff', 'head_cafeteria', 'cafeteria_staff', 'facilities_management', 'facilities_account', 'department_head'].includes(user.role)
   const canAddNotes = user && user.role !== 'student'
   const canViewNotes = user && user.role !== 'student'
   const isStudent = user?.role === 'student'
@@ -399,4 +399,3 @@ export function FeedbackDetailModal({ feedback, open, onClose }: FeedbackDetailM
     </Dialog>
   )
 }
-

@@ -35,67 +35,39 @@ def _apply_runtime_patches() -> None:
     if not str(engine.url).startswith("postgresql"):
         return
 
+    role_patch = """
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'userrole') THEN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_enum
+                    WHERE enumlabel = '{role_name}'
+                      AND enumtypid = 'userrole'::regtype
+                ) THEN
+                    ALTER TYPE userrole ADD VALUE '{role_name}';
+                END IF;
+            END IF;
+        END$$
+        """
+    role_values = [
+        "course_coordinator",
+        "dean",
+        "head_student_affairs",
+        "facilities_account",
+        "head_security",
+        "security_supervisor",
+        "security_staff",
+        "head_maintenance",
+        "maintenance_staff",
+        "head_facilities",
+        "facilities_staff",
+        "head_cafeteria",
+        "cafeteria_staff",
+    ]
+
     statements = [
-        """
-        DO $$
-        BEGIN
-            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'userrole') THEN
-                IF NOT EXISTS (
-                    SELECT 1
-                    FROM pg_enum
-                    WHERE enumlabel = 'course_coordinator'
-                      AND enumtypid = 'userrole'::regtype
-                ) THEN
-                    ALTER TYPE userrole ADD VALUE 'course_coordinator';
-                END IF;
-            END IF;
-        END$$
-        """,
-        """
-        DO $$
-        BEGIN
-            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'userrole') THEN
-                IF NOT EXISTS (
-                    SELECT 1
-                    FROM pg_enum
-                    WHERE enumlabel = 'dean'
-                      AND enumtypid = 'userrole'::regtype
-                ) THEN
-                    ALTER TYPE userrole ADD VALUE 'dean';
-                END IF;
-            END IF;
-        END$$
-        """,
-        """
-        DO $$
-        BEGIN
-            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'userrole') THEN
-                IF NOT EXISTS (
-                    SELECT 1
-                    FROM pg_enum
-                    WHERE enumlabel = 'head_student_affairs'
-                      AND enumtypid = 'userrole'::regtype
-                ) THEN
-                    ALTER TYPE userrole ADD VALUE 'head_student_affairs';
-                END IF;
-            END IF;
-        END$$
-        """,
-        """
-        DO $$
-        BEGIN
-            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'userrole') THEN
-                IF NOT EXISTS (
-                    SELECT 1
-                    FROM pg_enum
-                    WHERE enumlabel = 'facilities_account'
-                      AND enumtypid = 'userrole'::regtype
-                ) THEN
-                    ALTER TYPE userrole ADD VALUE 'facilities_account';
-                END IF;
-            END IF;
-        END$$
-        """,
+        *(role_patch.format(role_name=role_name) for role_name in role_values),
         "ALTER TABLE feedback ADD COLUMN IF NOT EXISTS assigned_by_id VARCHAR(36)",
         "ALTER TABLE feedback ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ",
         "ALTER TABLE feedback ADD COLUMN IF NOT EXISTS due_at TIMESTAMPTZ",

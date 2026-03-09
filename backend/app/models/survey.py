@@ -1,11 +1,11 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import Boolean, JSON, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
-from app.models.enums import SurveyType
+from app.models.enums import SurveyType, UserRole
 
 
 class Survey(Base):
@@ -24,6 +24,8 @@ class Survey(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     questions = relationship("SurveyQuestion", back_populates="survey", cascade="all, delete-orphan")
+    viewer_access = relationship("SurveyViewerAccess", back_populates="survey", cascade="all, delete-orphan")
+    audiences = relationship("SurveyAudience", back_populates="survey", cascade="all, delete-orphan")
 
 
 class SurveyQuestion(Base):
@@ -50,3 +52,27 @@ class SurveyResponse(Base):
     is_anonymous: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     answers: Mapped[list[dict]] = mapped_column(JSON, nullable=False)
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class SurveyViewerAccess(Base):
+    __tablename__ = "survey_viewer_access"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    survey_id: Mapped[str] = mapped_column(String(36), ForeignKey("surveys.id"), nullable=False, index=True)
+    role: Mapped[UserRole | None] = mapped_column(Enum(UserRole), nullable=True, index=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    survey = relationship("Survey", back_populates="viewer_access")
+
+
+class SurveyAudience(Base):
+    __tablename__ = "survey_audiences"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    survey_id: Mapped[str] = mapped_column(String(36), ForeignKey("surveys.id"), nullable=False, index=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    department: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    survey = relationship("Survey", back_populates="audiences")
