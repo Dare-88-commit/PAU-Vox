@@ -33,7 +33,11 @@ class FeedbackPriority(str, enum.Enum):
     low = "low"
     medium = "medium"
     high = "high"
+<<<<<<< HEAD
+    
+=======
     urgent = "urgent"
+>>>>>>> 729e00501dbbf5426a5acc6f287fc9fd111f666a
 
 
 class NotificationType(str, enum.Enum):
