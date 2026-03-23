@@ -142,7 +142,7 @@ export function LandingPage({ onNavigate }: LandingPageProps) {
       </div>
 
       {/* Custom Animations */}
-      <style jsx global>{`
+      <style>{`
         @keyframes blob {
           0% {
             transform: translate(0px, 0px) scale(1);

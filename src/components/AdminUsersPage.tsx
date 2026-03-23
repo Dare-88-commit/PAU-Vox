@@ -92,7 +92,7 @@ export function AdminUsersPage({ onNavigate }: AdminUsersPageProps) {
   }>>([])
   const [draftRole, setDraftRole] = useState<Record<string, UserRole>>({})
   const [draftDept, setDraftDept] = useState<Record<string, string>>({})
-  const [rolePickerOpen, setRolePickerOpen] = useState<Record<string, boolean>>({})
+  const [openRolePickerId, setOpenRolePickerId] = useState<string | null>(null)
 
   const parseScopeList = (value: string) =>
     value
@@ -302,8 +302,8 @@ export function AdminUsersPage({ onNavigate }: AdminUsersPageProps) {
                       <div className="space-y-2">
                         <Label>Role</Label>
                         <Popover
-                          open={!!rolePickerOpen[row.id]}
-                          onOpenChange={(open) => setRolePickerOpen((prev) => ({ ...prev, [row.id]: open }))}
+                          open={openRolePickerId === row.id}
+                          onOpenChange={(open) => setOpenRolePickerId(open ? row.id : null)}
                         >
                           <PopoverTrigger asChild>
                             <Button variant="outline" role="combobox" className="w-full justify-between" disabled={row.is_major_admin || busy}>
@@ -324,7 +324,7 @@ export function AdminUsersPage({ onNavigate }: AdminUsersPageProps) {
                                       disabled={opt.value === 'ict_admin' && !user?.isMajorAdmin}
                                       onSelect={() => {
                                         setDraftRole((prev) => ({ ...prev, [row.id]: opt.value }))
-                                        setRolePickerOpen((prev) => ({ ...prev, [row.id]: false }))
+                                        setOpenRolePickerId(null)
                                       }}
                                     >
                                       <Check className={`mr-2 h-4 w-4 ${roleChoice === opt.value ? 'opacity-100' : 'opacity-0'}`} />

@@ -1,14 +1,12 @@
 ﻿import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useFeedback } from '../../contexts/FeedbackContext'
-import { DEPARTMENTS } from '../../lib/catalog'
 import { Layout } from '../Layout'
 import { FeedbackCard } from '../feedback/FeedbackCard'
 import { FeedbackDetailModal } from '../feedback/FeedbackDetailModal'
 import { AssignmentModal } from '../feedback/AssignmentModal'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import { MessageSquare, Clock, AlertCircle } from 'lucide-react'
 import type { Feedback } from '../../contexts/FeedbackContext'
 
@@ -24,7 +22,7 @@ export function AcademicStaffDashboard({ onNavigate }: AcademicStaffDashboardPro
   const availableDepartments = Array.from(
     new Set(getAllFeedbacks().filter(f => f.type === 'academic' && f.department).map(f => f.department as string))
   )
-  const defaultDepartment = availableDepartments[0] || DEPARTMENTS[0]
+  const defaultDepartment = availableDepartments[0] || ''
   const [selectedDepartment, setSelectedDepartment] = useState(defaultDepartment)
   useEffect(() => {
     if (!availableDepartments.length) return
@@ -34,7 +32,7 @@ export function AcademicStaffDashboard({ onNavigate }: AcademicStaffDashboardPro
   }, [availableDepartments.join('|'), selectedDepartment])
 
   const departmentFeedbacks = getAllFeedbacks().filter(
-    f => f.type === 'academic' && f.department === selectedDepartment
+    f => f.type === 'academic' && (!selectedDepartment || f.department === selectedDepartment)
   )
 
   const pendingCount = departmentFeedbacks.filter(f => f.status === 'pending').length
@@ -56,22 +54,11 @@ export function AcademicStaffDashboard({ onNavigate }: AcademicStaffDashboardPro
         <Card>
           <CardHeader>
             <CardTitle>Department</CardTitle>
-            <CardDescription>View feedback for your department</CardDescription>
+            <CardDescription>
+              Showing feedback for your assigned scope only
+              {selectedDepartment ? `: ${selectedDepartment}` : ''}
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-              <SelectTrigger className="w-full md:w-[300px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(availableDepartments.length ? availableDepartments : DEPARTMENTS).map((dept) => (
-                  <SelectItem key={dept} value={dept}>
-                    {dept}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </CardContent>
         </Card>
 
         <div className="grid gap-4 md:grid-cols-4">
@@ -115,7 +102,11 @@ export function AcademicStaffDashboard({ onNavigate }: AcademicStaffDashboardPro
               <div className="text-center py-12">
                 <MessageSquare className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
                 <h3 className="text-lg font-medium mb-2">No feedback found</h3>
-                <p className="text-muted-foreground">No academic feedback for {selectedDepartment} at this time</p>
+                <p className="text-muted-foreground">
+                  {selectedDepartment
+                    ? `No academic feedback for ${selectedDepartment} at this time`
+                    : 'No academic feedback in your scope at this time'}
+                </p>
               </div>
             ) : (
               <Tabs defaultValue="all" className="w-full">

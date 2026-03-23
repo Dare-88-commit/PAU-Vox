@@ -110,7 +110,7 @@ def _ensure_major_admin() -> None:
                     is_verified, is_active, is_major_admin, role_assignment_locked, created_at
                 ) VALUES (
                     :id, :email, :full_name, :role, NULL, :hashed_password,
-                    TRUE, TRUE, TRUE, FALSE, NOW()
+                    TRUE, TRUE, TRUE, FALSE, CURRENT_TIMESTAMP
                 )
                 ON CONFLICT (email) DO UPDATE SET
                     is_major_admin = TRUE,
