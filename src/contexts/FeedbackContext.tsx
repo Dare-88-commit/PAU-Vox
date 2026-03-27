@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useAuth } from "./AuthContext";
 import { apiRequest } from "../lib/api";
+import { profanityWords } from "../lib/profanityWords";
 
 export type FeedbackType = "academic" | "non_academic";
 export type FeedbackStatus = "pending" | "in_review" | "assigned" | "working" | "resolved" | "rejected";
@@ -52,6 +53,7 @@ interface FeedbackContextType {
   addInternalNote: (feedbackId: string, note: string, author: string) => Promise<void>;
   uploadAttachment: (feedbackId: string, file: File) => Promise<void>;
   checkProfanity: (text: string) => boolean;
+  getProfanityMatches: (text: string) => Array<{ start: number; end: number; word: string }>;
   getUserFeedbacks: (userId: string) => Feedback[];
   getDepartmentFeedbacks: (department: string, type: FeedbackType) => Feedback[];
   getAssignedFeedbacks: (assignedTo: string) => Feedback[];
@@ -97,7 +99,60 @@ type BackendFeedback = {
 
 const FeedbackContext = createContext<FeedbackContextType | undefined>(undefined);
 
-const profanityList = ["damn", "hell", "stupid", "idiot", "fool", "crap", "suck"];
+const EXCLUDED_PROFANITY = new Set(["f you"]);
+
+const profanityList = Array.from(
+  new Set(
+    profanityWords
+      .map((word) => {
+        const trimmed = word.trim().toLowerCase();
+        if (!trimmed) return "";
+        const wildcardIndex = trimmed.indexOf("*");
+        if (wildcardIndex >= 0) {
+          return trimmed.slice(0, wildcardIndex);
+        }
+        return trimmed;
+      })
+      .map((word) => word.trim())
+      .filter((word) => word.length >= 3 && !EXCLUDED_PROFANITY.has(word))
+  )
+);
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const findMatches = (text: string, word: string): Array<{ start: number; end: number }> => {
+  const lowerText = text.toLowerCase();
+  if (word.length < 3) {
+    return [];
+  }
+  const isSimpleToken = /^[a-z0-9]+$/.test(word);
+  if (isSimpleToken) {
+    const regex = new RegExp(`\\b${escapeRegExp(word)}\\b`, "gi");
+    const matches: Array<{ start: number; end: number }> = [];
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(lowerText)) !== null) {
+      matches.push({ start: match.index, end: match.index + word.length });
+    }
+    return matches;
+  }
+  if (word.includes(" ")) {
+    const escaped = escapeRegExp(word).replace(/\\\s+/g, "\\s+");
+    const regex = new RegExp(`\\b${escaped}\\b`, "gi");
+    const matches: Array<{ start: number; end: number }> = [];
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(lowerText)) !== null) {
+      matches.push({ start: match.index, end: match.index + match[0].length });
+    }
+    return matches;
+  }
+  const matches: Array<{ start: number; end: number }> = [];
+  let index = lowerText.indexOf(word);
+  while (index !== -1) {
+    matches.push({ start: index, end: index + word.length });
+    index = lowerText.indexOf(word, index + word.length);
+  }
+  return matches;
+};
 
 function mapFeedback(input: BackendFeedback): Feedback {
   return {
@@ -162,8 +217,30 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
   }, [token, user?.role]);
 
   const checkProfanity = (text: string): boolean => {
-    const lowerText = text.toLowerCase();
-    return profanityList.some((word) => lowerText.includes(word));
+    return profanityList.some((word) => findMatches(text, word).length > 0);
+  };
+
+  const getProfanityMatches = (text: string): Array<{ start: number; end: number; word: string }> => {
+    const matches: Array<{ start: number; end: number; word: string }> = [];
+    profanityList.forEach((word) => {
+      const wordMatches = findMatches(text, word);
+      wordMatches.forEach((match) => matches.push({ ...match, word }));
+    });
+    if (matches.length <= 1) {
+      return matches;
+    }
+    matches.sort((a, b) => a.start - b.start);
+    const merged: Array<{ start: number; end: number; word: string }> = [];
+    for (const match of matches) {
+      const last = merged[merged.length - 1];
+      if (!last || match.start > last.end) {
+        merged.push({ ...match });
+      } else {
+        last.end = Math.max(last.end, match.end);
+        last.word = `${last.word}, ${match.word}`;
+      }
+    }
+    return merged;
   };
 
   const submitFeedback = async (
@@ -272,6 +349,7 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
         addInternalNote,
         uploadAttachment,
         checkProfanity,
+        getProfanityMatches,
         getUserFeedbacks,
         getDepartmentFeedbacks,
         getAssignedFeedbacks,

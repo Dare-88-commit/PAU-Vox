@@ -21,7 +21,7 @@ interface FeedbackFormProps {
 }
 
 export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
-  const { submitFeedback, checkProfanity } = useFeedback()
+  const { submitFeedback, checkProfanity, getProfanityMatches } = useFeedback()
   const { user, isAuthenticated } = useAuth()
   const [type, setType] = useState<FeedbackType>('academic')
   const [category, setCategory] = useState('')
@@ -76,6 +76,28 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
     if (checkProfanity(value)) {
       setProfanityWarning(true)
     }
+  }
+
+  const renderHighlightedText = (text: string) => {
+    const matches = getProfanityMatches(text)
+    if (!matches.length) return text
+    const segments: Array<JSX.Element | string> = []
+    let cursor = 0
+    matches.forEach((match, idx) => {
+      if (cursor < match.start) {
+        segments.push(text.slice(cursor, match.start))
+      }
+      segments.push(
+        <span key={`match-${idx}-${match.start}`} className="bg-red-200 text-red-900 rounded px-0.5">
+          {text.slice(match.start, match.end)}
+        </span>
+      )
+      cursor = match.end
+    })
+    if (cursor < text.length) {
+      segments.push(text.slice(cursor))
+    }
+    return segments
   }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -134,8 +156,12 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
         }
       }, 3000)
     } catch (err: any) {
-      setError(err.message || 'Failed to submit feedback')
-      toast.error(err.message || 'Failed to submit feedback')
+      const message = err.message || 'Failed to submit feedback'
+      if (message.toLowerCase().includes('blocked language')) {
+        setProfanityWarning(true)
+      }
+      setError(message)
+      toast.error(message)
     } finally {
       setLoading(false)
     }
@@ -229,6 +255,12 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
                   onChange={(e) => handleSubjectChange(e.target.value)}
                   required
                 />
+                {profanityWarning && getProfanityMatches(subject).length > 0 && (
+                  <div className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-900">
+                    <div className="font-medium">Blocked text detected in subject:</div>
+                    <div className="mt-1 break-words">{renderHighlightedText(subject)}</div>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -244,6 +276,12 @@ export function FeedbackForm({ onNavigate }: FeedbackFormProps) {
                 <p className="text-sm text-muted-foreground">
                   {description.length} characters
                 </p>
+                {profanityWarning && getProfanityMatches(description).length > 0 && (
+                  <div className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-900">
+                    <div className="font-medium">Blocked text detected in description:</div>
+                    <div className="mt-1 break-words">{renderHighlightedText(description)}</div>
+                  </div>
+                )}
               </div>
 
               {(description.length > 20 || subject.length > 10) && category && (
