@@ -22,6 +22,7 @@ from app.schemas.survey import (
     SurveyOut,
     SurveySubmitRequest,
 )
+from app.services.web_push import send_web_push_to_user
 
 router = APIRouter()
 EDIT_WINDOW_MINUTES = 60
@@ -327,6 +328,13 @@ def send_survey_reminder(
                 message=f"Please complete the survey: {survey.title}",
                 type=NotificationType.info,
             )
+        )
+        send_web_push_to_user(
+            db=db,
+            user_id=student.id,
+            title="Survey reminder",
+            message=f"Please complete the survey: {survey.title}",
+            url="/surveys",
         )
     db.commit()
     return MessageResponse(message=f"Reminder sent to {len(recipients)} student account(s)")

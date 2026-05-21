@@ -30,3 +30,9 @@ class NotificationPreferencesUpdate(BaseModel):
     push_notifications_enabled: bool
     high_priority_alerts_enabled: bool
     weekly_digest_enabled: bool
+
+
+class PushSubscriptionIn(BaseModel):
+    endpoint: str
+    p256dh: str
+    auth: str

@@ -40,6 +40,7 @@ from app.services.email import send_plain_email
 from app.services.priority import detect_priority
 from app.services.profanity import contains_profanity
 from app.services.similarity import detect_similarity_group
+from app.services.web_push import send_web_push_to_user
 
 router = APIRouter()
 
@@ -161,6 +162,13 @@ def _notify(
             message=message,
             type=level,
         )
+    )
+    send_web_push_to_user(
+        db=db,
+        user_id=user_id,
+        title=title,
+        message=message,
+        url=f"/dashboard?feedback={feedback_id}" if feedback_id else "/dashboard",
     )
 
 

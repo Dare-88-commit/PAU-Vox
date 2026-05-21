@@ -57,6 +57,16 @@ This starts:
 - Verification codes are sent through SMTP when configured.
 - If SMTP is not configured, codes are logged for development only.
 
+## Web Push Notifications (Browser / OS-level)
+- Configure VAPID values in `.env`:
+  - `PUSH_VAPID_PUBLIC_KEY`
+  - `PUSH_VAPID_PRIVATE_KEY`
+  - `PUSH_VAPID_CLAIMS_EMAIL`
+- Install dependency:
+  - `pywebpush`
+- Frontend registers a service worker (`/sw.js`) and subscribes browser push tokens via API.
+- Users still keep in-app notifications; Web Push is an additional delivery channel.
+
 ## Backups
 - PostgreSQL backup script:
   - `powershell -ExecutionPolicy Bypass -File scripts/backup_postgres.ps1`
@@ -80,6 +90,9 @@ This starts:
 - `POST /api/v1/feedback/{feedback_id}/attachments`
 - `GET /api/v1/feedback/{feedback_id}/attachments/{attachment_id}`
 - `GET /api/v1/notifications`
+- `GET /api/v1/notifications/push/vapid-public-key`
+- `POST /api/v1/notifications/push-subscriptions`
+- `DELETE /api/v1/notifications/push-subscriptions`
 - `PATCH /api/v1/notifications/{notification_id}/read`
 - `PATCH /api/v1/notifications/read-all`
 - `GET /api/v1/analytics`

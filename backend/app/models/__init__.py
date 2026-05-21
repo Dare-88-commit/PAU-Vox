@@ -5,6 +5,7 @@ from app.models.email_verification_code import EmailVerificationCode
 from app.models.feedback import Feedback
 from app.models.internal_note import InternalNote
 from app.models.notification import Notification
+from app.models.push_subscription import PushSubscription
 from app.models.status_history import StatusHistory
 from app.models.survey import Survey, SurveyAudience, SurveyQuestion, SurveyResponse, SurveyViewerAccess
 from app.models.user import User
@@ -18,6 +19,7 @@ __all__ = [
     "InternalNote",
     "StatusHistory",
     "Notification",
+    "PushSubscription",
     "EmailVerificationCode",
     "Survey",
     "SurveyQuestion",

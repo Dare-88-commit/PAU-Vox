@@ -31,3 +31,4 @@ class User(Base):
     submitted_feedback = relationship("Feedback", back_populates="student", foreign_keys="Feedback.student_id")
     assigned_feedback = relationship("Feedback", back_populates="assignee", foreign_keys="Feedback.assigned_to_id")
     notifications = relationship("Notification", back_populates="user")
+    push_subscriptions = relationship("PushSubscription", cascade="all, delete-orphan")

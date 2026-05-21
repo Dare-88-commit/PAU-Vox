@@ -10,6 +10,7 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.core.security import hash_password
 from app.db.session import engine
+from app.middleware.performance import ResponseTimeMiddleware
 from app.models import Base
 from app.models.enums import UserRole
 
@@ -28,6 +29,8 @@ app.add_middleware(
 )
 if settings.enforce_https:
     app.add_middleware(HTTPSRedirectMiddleware)
+if settings.enable_response_timing_header:
+    app.add_middleware(ResponseTimeMiddleware)
 
 
 def _apply_runtime_patches() -> None:
@@ -91,6 +94,14 @@ def _apply_runtime_patches() -> None:
 
 
 def _ensure_major_admin() -> None:
+    # Defensive guard for older SQLite files that may predate this column.
+    if engine.dialect.name == "sqlite":
+        with engine.connect() as conn:
+            columns = conn.execute(text("PRAGMA table_info(users)")).fetchall()
+            column_names = {row[1] for row in columns}
+            if "is_major_admin" not in column_names:
+                return
+
     with engine.begin() as conn:
         existing = conn.execute(
             text("SELECT id FROM users WHERE is_major_admin = TRUE LIMIT 1")

@@ -2,11 +2,18 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.notification import Notification
+from app.models.push_subscription import PushSubscription
 from app.models.user import User
 from app.schemas.common import MessageResponse
-from app.schemas.notification import NotificationOut, NotificationPreferencesOut, NotificationPreferencesUpdate
+from app.schemas.notification import (
+    NotificationOut,
+    NotificationPreferencesOut,
+    NotificationPreferencesUpdate,
+    PushSubscriptionIn,
+)
 
 router = APIRouter()
 
@@ -85,3 +92,54 @@ def update_notification_preferences(
         high_priority_alerts_enabled=current_user.high_priority_alerts_enabled,
         weekly_digest_enabled=current_user.weekly_digest_enabled,
     )
+
+
+@router.get("/push/vapid-public-key", response_model=dict[str, str])
+def get_push_vapid_public_key() -> dict[str, str]:
+    if not settings.push_vapid_public_key:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Web push is not configured")
+    return {"public_key": settings.push_vapid_public_key}
+
+
+@router.post("/push-subscriptions", response_model=MessageResponse)
+def upsert_push_subscription(
+    payload: PushSubscriptionIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MessageResponse:
+    row = (
+        db.query(PushSubscription)
+        .filter(PushSubscription.user_id == current_user.id, PushSubscription.endpoint == payload.endpoint)
+        .first()
+    )
+    if row:
+        row.p256dh = payload.p256dh
+        row.auth = payload.auth
+    else:
+        db.add(
+            PushSubscription(
+                user_id=current_user.id,
+                endpoint=payload.endpoint,
+                p256dh=payload.p256dh,
+                auth=payload.auth,
+            )
+        )
+    db.commit()
+    return MessageResponse(message="Push subscription saved")
+
+
+@router.delete("/push-subscriptions", response_model=MessageResponse)
+def delete_push_subscription(
+    payload: PushSubscriptionIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MessageResponse:
+    row = (
+        db.query(PushSubscription)
+        .filter(PushSubscription.user_id == current_user.id, PushSubscription.endpoint == payload.endpoint)
+        .first()
+    )
+    if row:
+        db.delete(row)
+        db.commit()
+    return MessageResponse(message="Push subscription removed")

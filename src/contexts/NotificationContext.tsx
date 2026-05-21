@@ -66,6 +66,17 @@ function playWarningSound() {
   }
 }
 
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const { token } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -103,6 +114,62 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       void refreshNotifications();
     }, 30000);
     return () => clearInterval(interval);
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+      return;
+    }
+    if (!window.isSecureContext && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
+      return;
+    }
+
+    const setupWebPush = async () => {
+      try {
+        const permission = Notification.permission;
+        if (permission === "denied") {
+          return;
+        }
+        if (permission === "default") {
+          const requested = await Notification.requestPermission();
+          if (requested !== "granted") {
+            return;
+          }
+        }
+
+        const registration = await navigator.serviceWorker.register("/sw.js");
+        const keyPayload = await apiRequest<{ public_key: string }>("/notifications/push/vapid-public-key", { token });
+        const applicationServerKey = urlBase64ToUint8Array(keyPayload.public_key);
+        let subscription = await registration.pushManager.getSubscription();
+        if (!subscription) {
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey,
+          });
+        }
+
+        const json = subscription.toJSON();
+        const p256dh = json.keys?.p256dh;
+        const auth = json.keys?.auth;
+        if (!json.endpoint || !p256dh || !auth) {
+          return;
+        }
+        await apiRequest<{ message: string }>("/notifications/push-subscriptions", {
+          method: "POST",
+          token,
+          body: {
+            endpoint: json.endpoint,
+            p256dh,
+            auth,
+          },
+        });
+      } catch {
+        // Keep notifications non-blocking when push isn't available/configured.
+      }
+    };
+
+    void setupWebPush();
   }, [token]);
 
   const addNotification = (notification: Omit<Notification, "id" | "read" | "createdAt">) => {
