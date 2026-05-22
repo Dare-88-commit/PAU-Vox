@@ -5,6 +5,7 @@ import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
 import { Alert, AlertDescription } from '../ui/alert'
+import { DEPARTMENTS } from '../../lib/catalog'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 
 interface SignupPageProps {
@@ -16,6 +17,7 @@ export function SignupPage({ onNavigate }: SignupPageProps) {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    department: '',
     password: '',
     confirmPassword: '',
   })
@@ -30,6 +32,11 @@ export function SignupPage({ onNavigate }: SignupPageProps) {
       return
     }
 
+    if (!DEPARTMENTS.includes(formData.department)) {
+      setError('Please select a valid department')
+      return
+    }
+
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match')
       return
@@ -41,7 +48,7 @@ export function SignupPage({ onNavigate }: SignupPageProps) {
     }
 
     try {
-      await signup(formData.email, formData.password, formData.name)
+      await signup(formData.email, formData.password, formData.name, formData.department)
       onNavigate('verify-email')
     } catch (err: any) {
       setError(err.message || 'Failed to create account')
@@ -92,6 +99,24 @@ export function SignupPage({ onNavigate }: SignupPageProps) {
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   required
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="department">Department</Label>
+                <Input
+                  id="department"
+                  list="signup-departments-list"
+                  type="text"
+                  placeholder="Search and select your department"
+                  value={formData.department}
+                  onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                  required
+                />
+                <datalist id="signup-departments-list">
+                  {DEPARTMENTS.map((department) => (
+                    <option key={department} value={department} />
+                  ))}
+                </datalist>
               </div>
 
               <div className="space-y-2">

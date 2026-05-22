@@ -38,7 +38,7 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string, name: string) => Promise<void>;
+  signup: (email: string, password: string, name: string, department: string) => Promise<void>;
   verifyEmail: (code: string) => Promise<void>;
   resendVerificationCode: () => Promise<void>;
   logout: () => void;
@@ -65,6 +65,7 @@ type PendingSignup = {
   email: string;
   password: string;
   name: string;
+  department: string;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -136,7 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const signup = async (email: string, password: string, name: string) => {
+  const signup = async (email: string, password: string, name: string, department: string) => {
     setLoading(true);
     try {
       await apiRequest<{ message: string }>("/auth/signup", {
@@ -145,10 +146,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email,
           password,
           full_name: name,
+          department,
         },
       });
 
-      const pending: PendingSignup = { email, password, name };
+      const pending: PendingSignup = { email, password, name, department };
       localStorage.setItem(PENDING_SIGNUP_KEY, JSON.stringify(pending));
 
       const placeholder: User = {
@@ -156,6 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email,
         name,
         role: "student",
+        department,
         verified: false,
         isMajorAdmin: false,
       };
